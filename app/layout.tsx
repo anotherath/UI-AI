@@ -21,9 +21,23 @@ const outfit = Outfit({
   weight: ["400", "500", "600"],
 });
 
+const siteDescription =
+  "A quieter workspace for thinking with AI - projects, shared knowledge, and chats that stay where they belong.";
+
 export const metadata: Metadata = {
   title: "Another Intelligence",
-  description: "Another Intelligence",
+  description: siteDescription,
+  openGraph: {
+    title: "Another Intelligence",
+    description: siteDescription,
+    type: "website",
+    siteName: "Another Intelligence",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Another Intelligence",
+    description: siteDescription,
+  },
 };
 
 export default function RootLayout({
