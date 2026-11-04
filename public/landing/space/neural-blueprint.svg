@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 900" fill="none">
+  <rect width="640" height="900" fill="#0a0c12"/>
+  <defs>
+    <radialGradient id="g" cx="50%" cy="42%" r="55%">
+      <stop offset="0%" stop-color="#1b2438"/>
+      <stop offset="100%" stop-color="#0a0c12"/>
+    </radialGradient>
+  </defs>
+  <rect width="640" height="900" fill="url(#g)"/>
+  <g stroke="#2f3d57" stroke-width="1" opacity="0.5">
+    <path d="M40 40h560M40 140h560M40 240h560M40 340h560M40 440h560M40 540h560M40 640h560M40 740h560M40 840h560"/>
+  </g>
+  <g stroke="#6f87ad" stroke-width="1.4" opacity="0.85">
+    <path d="M120 220C180 120 460 120 520 220 560 290 540 420 480 500 430 570 360 620 320 720 280 620 210 570 160 500 100 420 80 290 120 220Z"/>
+    <path d="M210 260c40-30 180-30 220 0"/>
+    <path d="M190 340c55-20 205-20 260 0"/>
+    <path d="M200 430c45-14 195-14 240 0"/>
+    <path d="M230 520c35-10 145-10 180 0"/>
+  </g>
+  <g fill="#d7e3f7">
+    <circle cx="220" cy="280" r="5"/><circle cx="300" cy="250" r="5"/><circle cx="390" cy="270" r="5"/>
+    <circle cx="250" cy="360" r="5"/><circle cx="340" cy="340" r="6"/><circle cx="420" cy="370" r="5"/>
+    <circle cx="270" cy="460" r="5"/><circle cx="350" cy="450" r="5"/><circle cx="430" cy="480" r="5"/>
+    <circle cx="320" cy="560" r="6"/><circle cx="320" cy="660" r="5"/>
+  </g>
+  <g stroke="#8ea6cc" stroke-width="1.1" opacity="0.75">
+    <path d="M220 280L300 250L390 270"/>
+    <path d="M220 280L250 360L340 340L390 270"/>
+    <path d="M250 360L270 460L350 450L420 370"/>
+    <path d="M270 460L320 560L430 480"/>
+    <path d="M320 560L320 660"/>
+    <path d="M340 340L350 450L320 560"/>
+  </g>
+  <g fill="#7f93b5" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14">
+    <text x="430" y="220">CORTEX</text>
+    <text x="450" y="400">NODES</text>
+    <text x="400" y="660">SIGNAL</text>
+  </g>
+</svg>
