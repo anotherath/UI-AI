@@ -68,6 +68,7 @@ export function HorizonGallery() {
 
   const [activeIndex, setActiveIndex] = useState(0);
   const [reduced, setReduced] = useState(false);
+  const [rowFits, setRowFits] = useState(true);
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -83,7 +84,14 @@ export function HorizonGallery() {
     if (!track || !sticky) return;
 
     const measure = () => {
-      maxShiftRef.current = Math.max(track.scrollWidth - sticky.clientWidth, 0);
+      const stage = track.parentElement;
+      const viewW = stage?.clientWidth ?? sticky.clientWidth;
+      maxShiftRef.current = Math.max(track.scrollWidth - viewW, 0);
+      setRowFits(maxShiftRef.current <= 0);
+      // When the row fits, flex centering holds it; clear any leftover shift.
+      if (maxShiftRef.current <= 0) {
+        track.style.transform = "translate3d(0, 0, 0)";
+      }
     };
 
     measure();
@@ -212,7 +220,8 @@ export function HorizonGallery() {
       ref={sectionRef}
       className={cn(
         "landing-horizon relative bg-[#050505]",
-        reduced ? "py-20 sm:py-28" : "h-[145vh]",
+        // Taller runway so the gallery travels slower while Lenis is calm.
+        reduced ? "py-20 sm:py-28" : "h-[180vh]",
       )}
       data-landing-cue="horizon"
       aria-label="A quieter orbit"
@@ -237,10 +246,15 @@ export function HorizonGallery() {
           </h2>
         </div>
 
-        <div className="landing-horizon-stage relative flex min-h-0 flex-1 items-center">
+        <div
+          className={cn(
+            "landing-horizon-stage relative flex min-h-0 flex-1 items-center",
+            rowFits ? "justify-center" : "justify-start",
+          )}
+        >
           <div
             ref={trackRef}
-            className="landing-horizon-track flex w-max items-center gap-5 px-5 sm:gap-6 sm:px-10"
+            className="landing-horizon-track flex w-max max-w-none items-center gap-5 px-5 sm:gap-6 sm:px-8"
           >
             {SLIDES.map((slide, index) => (
               <figure

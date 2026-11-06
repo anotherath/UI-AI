@@ -36,6 +36,7 @@ import {
 } from "@/components/assistant-ui/elements/tool-group.aui";
 import { TooltipIconButton } from "@/components/assistant-ui/elements/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import {
@@ -224,7 +225,7 @@ export const Thread: FC<ThreadProps> = ({
 
   return (
     <ThreadComponentsContext.Provider value={components}>
-      <div className="flex h-full w-full min-w-0 overflow-hidden bg-[#121214]">
+      <div className="relative flex h-full w-full min-w-0 overflow-hidden bg-[#121214]">
         <div className="relative min-w-0 flex-1">
           <ThreadRoot isEmpty={isEmpty} autoFocus={autoFocus} />
         </div>
@@ -256,6 +257,13 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({
         ["--composer-padding" as string]: "12px",
       }}
     >
+      {/* Mobile: sidebar is a sheet — trigger lives in the thread chrome */}
+      <div className="pointer-events-none absolute top-0 left-0 z-20 flex h-10 items-center px-2.5 pt-1 md:hidden">
+        <SidebarTrigger
+          size="icon"
+          className="pointer-events-auto size-8 text-zinc-400 hover:bg-white/5 hover:text-white"
+        />
+      </div>
       <ThreadTopActions />
       <ThreadPrimitive.Viewport
         turnAnchor="top"
@@ -277,8 +285,9 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({
         ) : (
           <div
             className={cn(
-              "mx-auto flex w-full max-w-(--thread-max-width) flex-1 flex-col px-4 pt-4",
-              isEmpty && "justify-center",
+              // Extra top pad once messages exist so bubbles clear Files/Notes chrome
+              "mx-auto flex w-full max-w-(--thread-max-width) flex-1 flex-col px-4",
+              isEmpty ? "justify-center pt-4" : "pt-12",
             )}
           >
             <AuiIf condition={isNewChatView}>

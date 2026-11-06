@@ -457,7 +457,7 @@ function StrokeBrain({ className }: { className?: string }) {
 export function BrainField() {
   return (
     <section
-      className="landing-brain relative isolate overflow-hidden bg-[#050505] px-5 py-24 sm:px-8 sm:py-32"
+      className="landing-brain relative isolate overflow-hidden bg-[#050505] px-5 py-20 sm:px-8 sm:py-32"
       data-landing-cue="brain"
     >
       <div
@@ -465,14 +465,14 @@ export function BrainField() {
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(56,189,248,0.06),transparent_55%)]"
       />
 
-      <div className="relative mx-auto mb-10 max-w-[720px] text-center sm:mb-12">
+      <div className="relative mx-auto mb-7 max-w-[720px] text-center sm:mb-12">
         <p className="text-[11px] font-medium tracking-[0.22em] text-zinc-500 uppercase">
           Internal map
         </p>
         <h2 className="mt-3 font-[family-name:var(--font-landing)] text-[clamp(1.75rem,4vw,2.75rem)] leading-[1.1] font-medium tracking-[-0.035em] text-white">
           A mind you can see working.
         </h2>
-        <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-zinc-500 sm:text-[15px]">
+        <p className="mx-auto mt-2.5 max-w-[32rem] text-sm leading-relaxed text-zinc-500 sm:mt-3 sm:text-[15px]">
           Context routes through projects and shared knowledge - less like a
           chat log, more like a living cortex.
         </p>
@@ -482,10 +482,10 @@ export function BrainField() {
         <DecorPanel side="left" />
         <DecorPanel side="right" />
 
-        <div className="landing-brain-stage relative mx-auto flex h-[min(58vh,480px)] w-full max-w-[900px] items-center justify-center">
+        <div className="landing-brain-stage relative mx-auto flex aspect-[5/4] w-full max-w-[900px] items-center justify-center sm:aspect-auto sm:h-[min(58vh,480px)]">
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-3 border border-white/[0.07] sm:inset-4"
+            className="pointer-events-none absolute inset-2 rounded-2xl border border-white/[0.07] sm:inset-4 sm:rounded-none"
           >
             <span className="absolute top-0 left-0 size-3 border-t border-l border-sky-400/50" />
             <span className="absolute top-0 right-0 size-3 border-t border-r border-sky-400/50" />
@@ -496,25 +496,31 @@ export function BrainField() {
           {/* Soft radial stage light */}
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-[18%] rounded-full bg-[radial-gradient(circle,rgba(56,189,248,0.1),transparent_68%)] blur-2xl"
+            className="pointer-events-none absolute inset-[12%] rounded-full bg-[radial-gradient(circle,rgba(56,189,248,0.1),transparent_68%)] blur-2xl sm:inset-[18%]"
           />
 
-          <div className="landing-brain-stroke relative z-10 w-[min(78%,460px)]">
+          <div className="landing-brain-stroke relative z-10 w-[min(92%,420px)] sm:w-[min(78%,460px)]">
             <StrokeBrain className="h-auto w-full" />
           </div>
 
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-x-5 top-5 flex justify-between font-mono text-[10px] tracking-[0.16em] text-zinc-500 uppercase sm:inset-x-8"
+            className="pointer-events-none absolute inset-x-3 top-3 flex justify-between gap-3 font-mono text-[9px] tracking-[0.14em] text-zinc-500 uppercase sm:inset-x-8 sm:top-5 sm:text-[10px] sm:tracking-[0.16em]"
           >
             <span>Scan / cortex</span>
-            <span>Signal density 0.87</span>
+            <span className="text-right">
+              <span className="sm:hidden">Density 0.87</span>
+              <span className="hidden sm:inline">Signal density 0.87</span>
+            </span>
           </div>
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-x-5 bottom-5 flex justify-between font-mono text-[10px] tracking-[0.16em] text-zinc-600 uppercase sm:inset-x-8"
+            className="pointer-events-none absolute inset-x-3 bottom-3 flex justify-between gap-3 font-mono text-[9px] tracking-[0.14em] text-zinc-600 uppercase sm:inset-x-8 sm:bottom-5 sm:text-[10px] sm:tracking-[0.16em]"
           >
-            <span>Hemisphere L / R</span>
+            <span>
+              <span className="sm:hidden">L / R</span>
+              <span className="hidden sm:inline">Hemisphere L / R</span>
+            </span>
             <span>Live map</span>
           </div>
         </div>

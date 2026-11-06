@@ -19,14 +19,17 @@ import {
   LibraryIcon,
   PanelLeftIcon,
   PaperclipIcon,
+  PenLineIcon,
   PlusIcon,
   SearchIcon,
 } from "lucide-react";
 import Image from "next/image";
 import { AiMark } from "@/components/brand/ai-mark";
+import { WelcomeTagline } from "@/components/assistant-ui/elements/welcome-tagline.aui";
 import { BrainField } from "@/components/landing/brain-field";
 import { FeaturesOrbit } from "@/components/landing/features-orbit";
 import { HorizonGallery } from "@/components/landing/horizon-gallery";
+import { LandingBackToTop } from "@/components/landing/back-to-top";
 import { LandingCursorGlow } from "@/components/landing/cursor-glow";
 import {
   fetchBlobWithProgress,
@@ -181,6 +184,7 @@ export function LandingPage() {
       >
         <LandingSmoothScroll />
         <LandingCursorGlow />
+        <LandingBackToTop />
 
       <header className="landing-nav absolute inset-x-0 top-0 z-30">
         <div className="mx-auto flex h-14 w-full max-w-[1200px] items-center justify-between px-5 sm:h-16 sm:px-8">
@@ -414,10 +418,97 @@ type DemoPhase =
   | "streaming"
   | "done";
 
+const DEMO_KEY_ROWS = [
+  ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"],
+  ["a", "s", "d", "f", "g", "h", "j", "k", "l"],
+  ["⇧", "z", "x", "c", "v", "b", "n", "m", "⌫"],
+  ["123", ".", "space", "?", "↵"],
+] as const;
+
+function demoKeyForChar(char: string): string | null {
+  if (char === " ") return "space";
+  if (char === ".") return ".";
+  if (char === "?") return "?";
+  if (char === "'") return null;
+  const lower = char.toLowerCase();
+  if (/^[a-z]$/.test(lower)) return lower;
+  return null;
+}
+
 function wait(ms: number) {
   return new Promise<void>((resolve) => {
     window.setTimeout(resolve, ms);
   });
+}
+
+function DemoMobileKeyboard({
+  open,
+  activeKey,
+}: {
+  open: boolean;
+  activeKey: string | null;
+}) {
+  return (
+    <div
+      aria-hidden
+      className={cn(
+        "pointer-events-none absolute inset-x-0 bottom-0 z-20 origin-bottom px-1.5 pt-2 pb-2 transition-[transform,opacity] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] md:hidden",
+        open
+          ? "translate-y-0 opacity-100"
+          : "translate-y-[108%] opacity-0",
+      )}
+    >
+      <div className="rounded-t-[14px] border border-white/10 border-b-0 bg-[#1c1c1e]/96 px-1.5 pt-2 pb-1.5 shadow-[0_-12px_40px_rgba(0,0,0,0.45)] backdrop-blur-md">
+        <div className="mx-auto mb-2 h-1 w-9 rounded-full bg-white/15" />
+        <div className="flex flex-col gap-[5px]">
+          {DEMO_KEY_ROWS.map((row) => (
+            <div key={row.join("-")} className="flex justify-center gap-[4px]">
+              {row.map((key) => {
+                const wide =
+                  key === "space"
+                    ? "flex-[3.2]"
+                    : key === "⇧" ||
+                        key === "⌫" ||
+                        key === "123" ||
+                        key === "↵"
+                      ? "flex-[1.35]"
+                      : "flex-1";
+                const active = activeKey === key;
+                const label =
+                  key === "space"
+                    ? "space"
+                    : key === "↵"
+                      ? "return"
+                      : key.length === 1 && /[a-z]/.test(key)
+                        ? key.toUpperCase()
+                        : key;
+                return (
+                  <span
+                    key={key}
+                    className={cn(
+                      wide,
+                      "inline-flex h-[34px] items-center justify-center rounded-[6px] font-medium text-[12px] tracking-tight transition-[background-color,color,transform,box-shadow] duration-75",
+                      key === "space" ||
+                        key === "⇧" ||
+                        key === "⌫" ||
+                        key === "123" ||
+                        key === "↵"
+                        ? "bg-[#3a3a3c] text-zinc-200"
+                        : "bg-[#636366] text-white",
+                      active &&
+                        "scale-[0.94] bg-white text-zinc-900 shadow-[0_0_0_1px_rgba(255,255,255,0.35)]",
+                    )}
+                  >
+                    {label}
+                  </span>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function ProductPreview() {
@@ -433,12 +524,34 @@ function ProductPreview() {
   const [reply, setReply] = useState("");
   const [composerFocused, setComposerFocused] = useState(false);
   const [chatActive, setChatActive] = useState(false);
+  /** Desktop keeps the blue cursor; mobile presses the real controls. */
+  const [pointerDemo, setPointerDemo] = useState(true);
   const [cursor, setCursor] = useState({
     x: 0,
     y: 0,
     visible: false,
     clicking: false,
   });
+  const [pressTarget, setPressTarget] = useState<"composer" | "send" | null>(
+    null,
+  );
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+  const [activeKey, setActiveKey] = useState<string | null>(null);
+
+  const pointInFrame = (
+    el: HTMLElement | null,
+    offsetX = 0.35,
+    offsetY = 0.28,
+  ) => {
+    const frame = frameRef.current;
+    if (!frame || !el) return null;
+    const frameBox = frame.getBoundingClientRect();
+    const box = el.getBoundingClientRect();
+    return {
+      x: box.left - frameBox.left + box.width * offsetX,
+      y: box.top - frameBox.top + box.height * offsetY,
+    };
+  };
 
   // Pixel coords inside the frame — CSS % in transform is relative to the
   // cursor itself, not the parent, so percentages always landed near the logo.
@@ -447,15 +560,13 @@ function ProductPreview() {
     offsetX = 0.35,
     offsetY = 0.28,
   ) => {
-    const frame = frameRef.current;
-    if (!frame || !el) return;
-    const frameBox = frame.getBoundingClientRect();
-    const box = el.getBoundingClientRect();
+    const point = pointInFrame(el, offsetX, offsetY);
+    if (!point) return;
     setCursor((prev) => ({
       ...prev,
       visible: true,
-      x: box.left - frameBox.left + box.width * offsetX,
-      y: box.top - frameBox.top + box.height * offsetY,
+      x: point.x,
+      y: point.y,
     }));
   };
 
@@ -465,6 +576,15 @@ function ProductPreview() {
     if (cancelledRef.current) return;
     setCursor((prev) => ({ ...prev, clicking: false }));
     await wait(140);
+  };
+
+  /** Soft press on the control itself — no floating blue ripple. */
+  const tapPulse = async (target: "composer" | "send") => {
+    setPressTarget(target);
+    await wait(150);
+    if (cancelledRef.current) return;
+    setPressTarget(null);
+    await wait(90);
   };
 
   useEffect(() => {
@@ -485,60 +605,99 @@ function ProductPreview() {
       if (startedRef.current || cancelledRef.current) return;
       startedRef.current = true;
 
-      const frame = frameRef.current;
-      const composer = composerRef.current;
-      if (frame) {
-        const frameBox = frame.getBoundingClientRect();
-        // Start just above/right of the Ask anything composer, then glide in.
-        if (composer) {
-          const box = composer.getBoundingClientRect();
-          setCursor({
-            x: box.left - frameBox.left + box.width * 0.55,
-            y: box.top - frameBox.top - 56,
-            visible: true,
-            clicking: false,
-          });
-        } else {
-          setCursor({
-            x: frameBox.width * 0.62,
-            y: frameBox.height * 0.55,
-            visible: true,
-            clicking: false,
-          });
+      // Mobile preview: no cursor — press the composer / send control itself.
+      const useCursor = window.matchMedia("(min-width: 768px)").matches;
+      setPointerDemo(useCursor);
+
+      if (useCursor) {
+        const frame = frameRef.current;
+        const composer = composerRef.current;
+        if (frame) {
+          const frameBox = frame.getBoundingClientRect();
+          if (composer) {
+            const box = composer.getBoundingClientRect();
+            setCursor({
+              x: box.left - frameBox.left + box.width * 0.55,
+              y: box.top - frameBox.top - 56,
+              visible: true,
+              clicking: false,
+            });
+          } else {
+            setCursor({
+              x: frameBox.width * 0.62,
+              y: frameBox.height * 0.55,
+              visible: true,
+              clicking: false,
+            });
+          }
         }
       }
+
       setPhase("idle");
-      await wait(420);
+      await wait(useCursor ? 420 : 280);
       if (cancelledRef.current) return;
 
       setPhase("to-input");
-      // Aim at the placeholder/"Ask anything" text area inside the composer.
-      moveCursorTo(composerRef.current, 0.28, 0.22);
-      await wait(980);
-      if (cancelledRef.current) return;
-
-      await clickPulse();
+      if (useCursor) {
+        moveCursorTo(composerRef.current, 0.28, 0.22);
+        await wait(980);
+        if (cancelledRef.current) return;
+        await clickPulse();
+      } else {
+        await wait(360);
+        if (cancelledRef.current) return;
+        await tapPulse("composer");
+      }
       if (cancelledRef.current) return;
       setComposerFocused(true);
-      await wait(220);
+      if (!useCursor) {
+        setKeyboardOpen(true);
+        await wait(480);
+      } else {
+        await wait(220);
+      }
       if (cancelledRef.current) return;
 
       setPhase("typing");
       for (let i = 1; i <= DEMO_PROMPT.length; i += 1) {
         if (cancelledRef.current) return;
+        const char = DEMO_PROMPT[i - 1] ?? "";
+        if (!useCursor) {
+          const key = demoKeyForChar(char);
+          setActiveKey(key);
+        }
         setDraft(DEMO_PROMPT.slice(0, i));
-        await wait(i === 1 ? 80 : 26 + (i % 5) * 5);
+        await wait(
+          useCursor
+            ? i === 1
+              ? 80
+              : 26 + (i % 5) * 5
+            : i === 1
+              ? 70
+              : 38 + (i % 4) * 6,
+        );
+        if (!useCursor) setActiveKey(null);
       }
 
       await wait(420);
       if (cancelledRef.current) return;
 
       setPhase("to-send");
-      moveCursorTo(sendRef.current, 0.5, 0.5);
-      await wait(720);
-      if (cancelledRef.current) return;
-
-      await clickPulse();
+      if (useCursor) {
+        moveCursorTo(sendRef.current, 0.5, 0.5);
+        await wait(720);
+        if (cancelledRef.current) return;
+        await clickPulse();
+      } else {
+        setActiveKey("↵");
+        await wait(160);
+        setActiveKey(null);
+        await wait(120);
+        if (cancelledRef.current) return;
+        await tapPulse("send");
+        setKeyboardOpen(false);
+        await wait(280);
+      }
       if (cancelledRef.current) return;
 
       setPhase("sent");
@@ -590,7 +749,7 @@ function ProductPreview() {
       <div
         ref={frameRef}
         aria-hidden
-        className="landing-preview-frame relative overflow-hidden border-y border-white/10 bg-[#121214] sm:rounded-[28px] sm:border"
+        className="landing-preview-frame relative overflow-hidden rounded-[22px] border border-white/10 bg-[#121214] sm:rounded-[28px]"
       >
         <div className="pointer-events-none flex h-[min(62vh,600px)] min-h-[360px] select-none">
           <aside className="hidden w-[260px] shrink-0 flex-col border-r border-white/5 bg-[#0e0e10] md:flex">
@@ -671,7 +830,10 @@ function ProductPreview() {
           </aside>
 
           <div
-            className="flex min-w-0 flex-1 flex-col bg-[#121214]"
+            className={cn(
+              "relative flex min-w-0 flex-1 flex-col bg-[#121214] transition-[padding] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
+              keyboardOpen && "pb-[168px] md:pb-0",
+            )}
             style={
               {
                 ["--composer-bg"]: "#1c1c21",
@@ -680,12 +842,31 @@ function ProductPreview() {
               } as CSSProperties
             }
           >
+            {/* Mobile sidebar trigger — matches /app chrome */}
+            <div className="absolute top-0 left-0 z-10 flex h-10 items-center px-2.5 pt-1 md:hidden">
+              <span className="inline-flex size-8 items-center justify-center rounded-md text-zinc-400">
+                <PanelLeftIcon className="size-4" />
+              </span>
+            </div>
+
+            {/* Files + Notes — appear once the demo chat is live */}
+            {chatActive ? (
+              <div className="absolute top-0 right-0 z-10 flex h-10 items-center justify-end gap-0.5 px-3 pt-1">
+                <span className="inline-flex size-8 items-center justify-center rounded-lg text-zinc-400">
+                  <FolderIcon className="size-[17px] stroke-[1.6]" />
+                </span>
+                <span className="inline-flex size-8 items-center justify-center rounded-lg text-zinc-400">
+                  <PenLineIcon className="size-[17px] stroke-[1.6]" />
+                </span>
+              </div>
+            ) : null}
+
             <div
               className={cn(
                 "mx-auto flex w-full max-w-[48rem] flex-1 flex-col px-4",
                 chatActive
-                  ? "justify-start pb-5 pt-4"
-                  : "items-stretch justify-center pb-8",
+                  ? "justify-start pt-12 pb-0"
+                  : "items-stretch justify-center pb-8 pt-4",
               )}
             >
               {!chatActive ? (
@@ -693,10 +874,10 @@ function ProductPreview() {
                   <p className="text-3xl font-semibold tracking-tight text-zinc-100">
                     Another Intelligence
                   </p>
-                  <p className="mt-2 text-sm text-zinc-500">Ask anything</p>
+                  <WelcomeTagline />
                 </div>
               ) : (
-                <div className="mb-6 flex flex-1 flex-col gap-5 overflow-hidden pt-2">
+                <div className="mb-6 flex flex-1 flex-col gap-5 overflow-hidden">
                   <div className="ms-auto max-w-[85%] rounded-[1.75rem] bg-muted px-4 py-2 text-sm leading-relaxed text-zinc-100">
                     {DEMO_PROMPT}
                   </div>
@@ -710,65 +891,83 @@ function ProductPreview() {
               )}
 
               <div
-                ref={composerRef}
                 className={cn(
-                  "flex w-full flex-col gap-2 rounded-(--composer-radius) border bg-(--composer-bg) p-(--composer-padding) shadow-[0_0_0_1px_rgba(255,255,255,0.02)] transition-[border-color,box-shadow]",
-                  chatActive && "mt-auto",
-                  composerFocused
-                    ? "border-white/20 shadow-[0_8px_40px_rgba(0,0,0,0.45)]"
-                    : "border-white/10",
+                  "flex flex-col gap-4 bg-gradient-to-t from-[#121214] via-[#121214]/95 to-transparent",
+                  keyboardOpen ? "pb-2" : "pb-5",
+                  chatActive && "sticky bottom-0 mt-auto",
                 )}
               >
                 <div
+                  ref={composerRef}
                   className={cn(
-                    "min-h-11 w-full px-3 py-2 text-base leading-6",
-                    draft ? "text-zinc-100" : "text-zinc-500",
+                    "flex w-full flex-col gap-2 rounded-(--composer-radius) border bg-(--composer-bg) p-(--composer-padding) shadow-[0_0_0_1px_rgba(255,255,255,0.02)] transition-[border-color,box-shadow,transform,background-color] duration-150",
+                    composerFocused
+                      ? "border-white/20 shadow-[0_8px_40px_rgba(0,0,0,0.45)]"
+                      : "border-white/10",
+                    pressTarget === "composer" &&
+                      "scale-[0.985] border-white/25 bg-[#222228]",
                   )}
                 >
-                  {draft || "Ask anything"}
-                  {phase === "typing" ? (
-                    <span className="landing-demo-caret ml-0.5 inline-block h-4 w-[2px] align-middle bg-zinc-300" />
-                  ) : null}
-                </div>
-                <div className="relative flex items-center justify-between">
-                  <span className="inline-flex size-7 items-center justify-center rounded-full text-zinc-500">
-                    <PaperclipIcon className="size-4" />
-                  </span>
-                  <span
-                    ref={sendRef}
+                  <div
                     className={cn(
-                      "inline-flex size-7 items-center justify-center rounded-full bg-zinc-100 text-zinc-900 transition-transform",
-                      cursor.clicking && phase === "to-send" && "scale-90",
+                      "min-h-11 w-full px-3 py-2 text-base leading-6",
+                      draft ? "text-zinc-100" : "text-zinc-500",
                     )}
                   >
-                    <ArrowUpIcon className="size-4" />
-                  </span>
+                    {draft || "Ask anything"}
+                    {phase === "typing" ? (
+                      <span className="landing-demo-caret ml-0.5 inline-block h-4 w-[2px] align-middle bg-zinc-300" />
+                    ) : null}
+                  </div>
+                  <div className="relative flex items-center justify-between">
+                    <span className="inline-flex size-7 items-center justify-center rounded-full text-zinc-500">
+                      <PaperclipIcon className="size-4" />
+                    </span>
+                    <span
+                      ref={sendRef}
+                      className={cn(
+                        "inline-flex size-7 items-center justify-center rounded-full bg-zinc-100 text-zinc-900 transition-transform duration-150",
+                        ((cursor.clicking && phase === "to-send") ||
+                          pressTarget === "send") &&
+                          "scale-90",
+                      )}
+                    >
+                      <ArrowUpIcon className="size-4" />
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
+
+            <DemoMobileKeyboard open={keyboardOpen} activeKey={activeKey} />
           </div>
         </div>
 
-        <div
-          className={cn(
-            "landing-demo-cursor pointer-events-none absolute top-0 left-0 z-30",
-            cursor.visible ? "opacity-100" : "opacity-0",
-            cursor.clicking && "landing-demo-cursor-click",
-          )}
-          style={{
-            transform: `translate3d(${cursor.x}px, ${cursor.y}px, 0) scale(${cursor.clicking ? 0.88 : 1})`,
-          }}
-        >
-          <img
-            src="/landing/cursor-blue.svg"
-            alt=""
-            width={36}
-            height={36}
-            draggable={false}
-            className="relative block size-9 select-none drop-shadow-[0_6px_14px_rgba(37,99,235,0.45)]"
-          />
-          {cursor.clicking ? <span className="landing-demo-click-ring" /> : null}
-        </div>
+        {pointerDemo ? (
+          <div
+            className={cn(
+              "landing-demo-cursor pointer-events-none absolute top-0 left-0 z-30",
+              cursor.visible ? "opacity-100" : "opacity-0",
+              cursor.clicking && "landing-demo-cursor-click",
+            )}
+            style={{
+              transform: `translate3d(${cursor.x}px, ${cursor.y}px, 0) scale(${cursor.clicking ? 0.88 : 1})`,
+            }}
+          >
+            <img
+              src="/landing/cursor-blue.svg"
+              alt=""
+              width={36}
+              height={36}
+              draggable={false}
+              className="relative block size-9 select-none drop-shadow-[0_6px_14px_rgba(37,99,235,0.45)]"
+            />
+            {cursor.clicking ? (
+              <span className="landing-demo-click-ring" />
+            ) : null}
+          </div>
+        ) : null}
+
       </div>
       <div
         aria-hidden

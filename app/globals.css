@@ -414,17 +414,37 @@
   mask-image: linear-gradient(
     to bottom,
     transparent 0%,
-    black 10%,
-    black 90%,
+    black 8%,
+    black 92%,
     transparent 100%
   );
   -webkit-mask-image: linear-gradient(
     to bottom,
     transparent 0%,
-    black 10%,
-    black 90%,
+    black 8%,
+    black 92%,
     transparent 100%
   );
+}
+
+@media (max-width: 639px) {
+  .landing-brain-stage {
+    /* Soften the fade so the HUD frame doesn't feel cropped on phones */
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0%,
+      black 4%,
+      black 96%,
+      transparent 100%
+    );
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0%,
+      black 4%,
+      black 96%,
+      transparent 100%
+    );
+  }
 }
 
 .landing-brain-stroke {

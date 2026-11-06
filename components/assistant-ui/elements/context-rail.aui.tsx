@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type FC,
   type PointerEvent as ReactPointerEvent,
 } from "react";
@@ -350,69 +351,106 @@ export const ContextRail: FC = () => {
 
   if (!sessionStarted) return null;
 
+  const title = panel === "files" ? "Files" : "Notes";
+
   return (
-    <aside
-      data-slot="aui_context-rail"
-      aria-label={panel === "files" ? "Files" : "Notes"}
-      aria-hidden={!open}
-      style={{ width: open ? width : 0 }}
-      className={cn(
-        "relative flex h-full shrink-0 flex-col overflow-hidden bg-[#0e0e10]",
-        open ? "border-l border-white/5" : "border-l border-transparent",
-        !dragging &&
-          "transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
-        !open && "pointer-events-none",
-      )}
-    >
-      <div className="relative flex h-full flex-col" style={{ width }}>
+    <>
+      {/* Mobile: dim chat behind the sheet */}
+      <button
+        type="button"
+        aria-label="Close panel"
+        tabIndex={open ? 0 : -1}
+        onClick={() => setPanel(null)}
+        className={cn(
+          "absolute inset-0 z-30 bg-black/55 transition-opacity duration-300 md:hidden",
+          open
+            ? "opacity-100"
+            : "pointer-events-none opacity-0",
+        )}
+      />
+
+      <aside
+        data-slot="aui_context-rail"
+        aria-label={title}
+        aria-hidden={!open}
+        style={
+          {
+            // Desktop keeps the persisted width; mobile is full-bleed via CSS.
+            "--rail-width": `${width}px`,
+          } as CSSProperties
+        }
+        className={cn(
+          "z-40 flex flex-col overflow-hidden bg-[#0e0e10]",
+          // Mobile: overlay sheet from the right
+          "absolute inset-y-0 right-0 w-full max-w-none",
+          open ? "translate-x-0" : "pointer-events-none translate-x-full",
+          !dragging &&
+            "transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
+          // Desktop: docked rail that resizes the chat column
+          "md:relative md:inset-auto md:translate-x-0 md:shrink-0",
+          open
+            ? "md:w-(--rail-width) md:border-l md:border-white/5"
+            : "md:w-0 md:border-l md:border-transparent",
+          !dragging &&
+            "md:transition-[width] md:duration-300 md:ease-[cubic-bezier(0.32,0.72,0,1)]",
+          !open && "md:pointer-events-none",
+        )}
+      >
         <div
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize panel"
-          aria-valuemin={RAIL_WIDTH_MIN}
-          aria-valuemax={RAIL_WIDTH_MAX}
-          aria-valuenow={width}
-          tabIndex={open ? 0 : -1}
-          onPointerDown={onResizePointerDown}
-          onPointerMove={onResizePointerMove}
-          onPointerUp={onResizePointerUp}
-          onPointerCancel={onResizePointerUp}
-          onKeyDown={(event) => {
-            if (!open) return;
-            if (event.key === "ArrowLeft") {
-              event.preventDefault();
-              setWidth(width + 16);
-            } else if (event.key === "ArrowRight") {
-              event.preventDefault();
-              setWidth(width - 16);
-            }
-          }}
-          className={cn(
-            "absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize touch-none",
-            "after:absolute after:inset-y-0 after:left-1 after:w-px after:bg-transparent after:transition-colors",
-            "hover:after:bg-white/25",
-            dragging && "after:bg-white/40",
-            !open && "pointer-events-none",
-          )}
-        />
-        <div className="flex h-10 shrink-0 items-center justify-end px-2">
-          <TooltipIconButton
-            tooltip="Close"
-            side="bottom"
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label="Close"
-            onClick={() => setPanel(null)}
-            className="size-8 rounded-lg text-zinc-500 hover:bg-white/10 hover:text-zinc-200"
-          >
-            <XIcon className="size-4" />
-          </TooltipIconButton>
+          className="relative flex h-full w-full flex-col md:w-(--rail-width)"
+        >
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize panel"
+            aria-valuemin={RAIL_WIDTH_MIN}
+            aria-valuemax={RAIL_WIDTH_MAX}
+            aria-valuenow={width}
+            tabIndex={open ? 0 : -1}
+            onPointerDown={onResizePointerDown}
+            onPointerMove={onResizePointerMove}
+            onPointerUp={onResizePointerUp}
+            onPointerCancel={onResizePointerUp}
+            onKeyDown={(event) => {
+              if (!open) return;
+              if (event.key === "ArrowLeft") {
+                event.preventDefault();
+                setWidth(width + 16);
+              } else if (event.key === "ArrowRight") {
+                event.preventDefault();
+                setWidth(width - 16);
+              }
+            }}
+            className={cn(
+              "absolute inset-y-0 -left-1 z-10 hidden w-2 cursor-col-resize touch-none md:block",
+              "after:absolute after:inset-y-0 after:left-1 after:w-px after:bg-transparent after:transition-colors",
+              "hover:after:bg-white/25",
+              dragging && "after:bg-white/40",
+              !open && "pointer-events-none",
+            )}
+          />
+          <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-white/5 px-3 md:h-10 md:border-b-0 md:justify-end md:px-2">
+            <p className="px-1 text-sm font-medium tracking-tight text-zinc-200 md:hidden">
+              {title}
+            </p>
+            <TooltipIconButton
+              tooltip="Close"
+              side="bottom"
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label="Close"
+              onClick={() => setPanel(null)}
+              className="size-8 rounded-lg text-zinc-500 hover:bg-white/10 hover:text-zinc-200"
+            >
+              <XIcon className="size-4" />
+            </TooltipIconButton>
+          </div>
+          {panel === "notes" ? <NotesRailBody /> : null}
+          {panel === "files" ? <FilesRailBody /> : null}
         </div>
-        {panel === "notes" ? <NotesRailBody /> : null}
-        {panel === "files" ? <FilesRailBody /> : null}
-      </div>
-    </aside>
+      </aside>
+    </>
   );
 };
 
