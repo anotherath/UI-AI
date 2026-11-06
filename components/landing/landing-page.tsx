@@ -28,23 +28,120 @@ import { BrainField } from "@/components/landing/brain-field";
 import { FeaturesOrbit } from "@/components/landing/features-orbit";
 import { HorizonGallery } from "@/components/landing/horizon-gallery";
 import { LandingCursorGlow } from "@/components/landing/cursor-glow";
+import {
+  fetchBlobWithProgress,
+  LandingLoader,
+} from "@/components/landing/landing-loader";
 import { LandingSmoothScroll } from "@/components/landing/smooth-scroll";
 import { TeamSection } from "@/components/landing/team-section";
 import { cn } from "@/lib/utils";
+
+const HERO_VIDEO_SRC = "/landing/hero-launch.mp4";
+const HERO_POSTER_SRC = "/landing/space/milky-way.jpg";
 
 export function LandingPage() {
   const router = useRouter();
   const heroVideoRef = useRef<HTMLVideoElement>(null);
   const [value, setValue] = useState("");
+  const [progress, setProgress] = useState(0);
+  const [bootstrapped, setBootstrapped] = useState(false);
+  const [loaderExiting, setLoaderExiting] = useState(false);
+  const [showLoader, setShowLoader] = useState(true);
+  const [heroSrc, setHeroSrc] = useState<string | null>(null);
 
   const goApp = (event?: FormEvent) => {
     event?.preventDefault();
     router.push("/app");
   };
 
+  // Real % preload of hero rocket video so reveal starts with playback ready.
+  useEffect(() => {
+    const controller = new AbortController();
+    let objectUrl: string | null = null;
+
+    const preloadPoster = () =>
+      new Promise<void>((resolve) => {
+        const img = new window.Image();
+        img.onload = () => resolve();
+        img.onerror = () => resolve();
+        img.src = HERO_POSTER_SRC;
+      });
+
+    void (async () => {
+      try {
+        await preloadPoster();
+        if (controller.signal.aborted) return;
+        setProgress((p) => Math.max(p, 4));
+
+        const blob = await fetchBlobWithProgress(
+          HERO_VIDEO_SRC,
+          (ratio) => {
+            setProgress(Math.max(4, Math.round(ratio * 92)));
+          },
+          controller.signal,
+        );
+        if (controller.signal.aborted) return;
+
+        objectUrl = URL.createObjectURL(blob);
+        setHeroSrc(objectUrl);
+        setProgress((p) => Math.max(p, 94));
+      } catch {
+        if (controller.signal.aborted) return;
+        setHeroSrc(HERO_VIDEO_SRC);
+        setProgress(100);
+      }
+    })();
+
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, []);
+
   useEffect(() => {
     const video = heroVideoRef.current;
-    if (!video) return;
+    if (!video || !heroSrc) return;
+
+    let cancelled = false;
+    let revealTimer: number | undefined;
+    let safety: number | undefined;
+
+    const finish = () => {
+      if (cancelled) return;
+      setProgress(100);
+      void video.play().catch(() => {});
+      // Crossfade: reveal landing under the loader as it lifts away.
+      setBootstrapped(true);
+      setLoaderExiting(true);
+      revealTimer = window.setTimeout(() => {
+        if (cancelled) return;
+        setShowLoader(false);
+      }, 520);
+    };
+
+    const onReady = () => finish();
+
+    // Blob is already fully fetched — reveal as soon as the first frame can play.
+    if (video.readyState >= 3) {
+      finish();
+    } else {
+      video.addEventListener("canplay", onReady, { once: true });
+      safety = window.setTimeout(() => {
+        if (!cancelled) finish();
+      }, 2500);
+    }
+
+    return () => {
+      cancelled = true;
+      if (revealTimer) window.clearTimeout(revealTimer);
+      if (safety) window.clearTimeout(safety);
+      video.removeEventListener("canplay", onReady);
+    };
+  }, [heroSrc]);
+
+  useEffect(() => {
+    const video = heroVideoRef.current;
+    if (!video || !bootstrapped) return;
 
     const io = new IntersectionObserver(
       ([entry]) => {
@@ -59,15 +156,31 @@ export function LandingPage() {
     );
     io.observe(video);
     return () => io.disconnect();
-  }, []);
+  }, [bootstrapped]);
 
   return (
     <div
       data-slot="landing-root"
-      className="landing-root relative min-h-dvh overflow-x-clip bg-[#050505] text-[#f5f5f5]"
+      data-ready={bootstrapped ? "" : undefined}
+      className={cn(
+        "landing-root relative min-h-dvh overflow-x-clip bg-[#050505] text-[#f5f5f5]",
+        !bootstrapped && "h-dvh overflow-hidden",
+      )}
+      aria-busy={!bootstrapped}
     >
-      <LandingSmoothScroll />
-      <LandingCursorGlow />
+      {showLoader ? (
+        <LandingLoader progress={progress} exiting={loaderExiting} />
+      ) : null}
+
+      <div
+        className={cn(
+          "landing-stage",
+          !bootstrapped && "pointer-events-none",
+        )}
+        aria-hidden={!bootstrapped}
+      >
+        <LandingSmoothScroll />
+        <LandingCursorGlow />
 
       <header className="landing-nav absolute inset-x-0 top-0 z-30">
         <div className="mx-auto flex h-14 w-full max-w-[1200px] items-center justify-between px-5 sm:h-16 sm:px-8">
@@ -102,16 +215,15 @@ export function LandingPage() {
           >
             <video
               ref={heroVideoRef}
-              className="landing-hero-video absolute inset-0 size-full scale-105 object-cover"
+              className="landing-hero-video absolute inset-0 size-full object-cover"
               autoPlay
               muted
               loop
               playsInline
-              preload="metadata"
-              poster="/landing/space/milky-way.jpg"
-            >
-              <source src="/landing/hero-launch.mp4" type="video/mp4" />
-            </video>
+              preload="auto"
+              poster={HERO_POSTER_SRC}
+              src={heroSrc ?? undefined}
+            />
             {/* Soft cinematic scrim - rocket stays bright, type & composer stay readable */}
             <div className="absolute inset-0 bg-[#050505]/18" />
             <div className="absolute inset-0 bg-gradient-to-b from-[#050505]/45 via-transparent via-[42%] to-transparent" />
@@ -280,6 +392,7 @@ export function LandingPage() {
           </p>
         </footer>
       </section>
+      </div>
     </div>
   );
 }

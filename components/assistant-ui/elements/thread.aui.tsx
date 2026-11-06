@@ -10,7 +10,12 @@ import { ComposerActiveProject } from "@/components/assistant-ui/elements/compos
 import { ComposerProjectPicker } from "@/components/assistant-ui/elements/composer-project-picker.aui";
 import { CreateProjectScreen } from "@/components/assistant-ui/elements/create-project-screen.aui";
 import { LibraryPage } from "@/components/assistant-ui/elements/library-page.aui";
+import {
+  ContextRail,
+  ThreadTopActions,
+} from "@/components/assistant-ui/elements/context-rail.aui";
 import { ProjectsBrowse } from "@/components/assistant-ui/elements/projects-browse.aui";
+import { WelcomeTagline } from "@/components/assistant-ui/elements/welcome-tagline.aui";
 import { useProjectsStore } from "@/lib/projects-store";
 import { File, getFileHref } from "@/components/assistant-ui/elements/file";
 import { ThreadFollowupSuggestions } from "@/components/assistant-ui/elements/follow-up-suggestions.aui";
@@ -219,7 +224,12 @@ export const Thread: FC<ThreadProps> = ({
 
   return (
     <ThreadComponentsContext.Provider value={components}>
-      <ThreadRoot isEmpty={isEmpty} autoFocus={autoFocus} />
+      <div className="flex h-full w-full min-w-0 overflow-hidden bg-[#121214]">
+        <div className="relative min-w-0 flex-1">
+          <ThreadRoot isEmpty={isEmpty} autoFocus={autoFocus} />
+        </div>
+        <ContextRail />
+      </div>
     </ThreadComponentsContext.Provider>
   );
 };
@@ -238,7 +248,7 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({
 
   return (
     <ThreadPrimitive.Root
-      className="aui-root aui-thread-root bg-[#121214] @container flex h-full flex-col"
+      className="aui-root aui-thread-root relative bg-[#121214] @container flex h-full flex-col"
       style={{
         ["--thread-max-width" as string]: "48rem",
         ["--composer-bg" as string]: "#1c1c21",
@@ -246,6 +256,7 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({
         ["--composer-padding" as string]: "12px",
       }}
     >
+      <ThreadTopActions />
       <ThreadPrimitive.Viewport
         turnAnchor="top"
         data-slot="aui_thread-viewport"
@@ -297,8 +308,10 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({
               <ThreadScrollToBottom />
               <ThreadFollowupSuggestions />
               <Composer autoFocus={autoFocus} />
-              <AuiIf condition={(s) => isNewChatView(s) && s.composer.isEmpty}>
-                <ThreadSuggestions />
+              {/* Keep suggestions mounted (invisible) while typing so
+                  justify-center welcome layout does not jump down. */}
+              <AuiIf condition={isNewChatView}>
+                <ComposerEmptySuggestions />
               </AuiIf>
             </ThreadPrimitive.ViewportFooter>
           </div>
@@ -489,7 +502,7 @@ const ThreadWelcome: FC = () => {
         <p className="aui-thread-welcome-message-inner fade-in slide-in-from-bottom-1 animate-in fill-mode-both text-3xl font-semibold tracking-tight text-zinc-100 duration-200">
           Another Intelligence
         </p>
-        <p className="mt-2 text-sm text-zinc-500">Ask anything</p>
+        <WelcomeTagline />
       </div>
     </div>
   );
@@ -501,6 +514,23 @@ const ThreadSuggestions: FC = () => {
       <ThreadPrimitive.Suggestions>
         {() => <ThreadSuggestionItem />}
       </ThreadPrimitive.Suggestions>
+    </div>
+  );
+};
+
+/** Renders suggestions; when the composer has text, hide but keep layout height. */
+const ComposerEmptySuggestions: FC = () => {
+  const composerEmpty = useAuiState((s) => s.composer.isEmpty);
+
+  return (
+    <div
+      className={cn(
+        "w-full",
+        !composerEmpty && "invisible pointer-events-none",
+      )}
+      aria-hidden={!composerEmpty}
+    >
+      <ThreadSuggestions />
     </div>
   );
 };
