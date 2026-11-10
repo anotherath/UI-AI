@@ -69,13 +69,14 @@ type ProjectsState = {
   sidebarHighlight: SidebarHighlight;
   editingId: string | null;
   libraryProjectId: string | null;
-  apiProjectId: string | null;
   /** threadId → projectId */
   threadProjects: Record<string, string>;
   isBrowsing: boolean;
   isCreating: boolean;
   isLibrary: boolean;
-  isApi: boolean;
+  isImageGen: boolean;
+  isSlides: boolean;
+  isBuild: boolean;
   addProject: (input?: string | CreateProjectInput) => Project;
   updateProject: (id: string, patch: ProjectPatch) => void;
   addProjectFiles: (id: string, files: ProjectFile[]) => void;
@@ -100,8 +101,12 @@ type ProjectsState = {
   closeBrowseProjects: () => void;
   openLibrary: (projectId?: string | null) => void;
   closeLibrary: () => void;
-  openApi: (projectId?: string | null) => void;
-  closeApi: () => void;
+  openImageGen: () => void;
+  closeImageGen: () => void;
+  openSlides: () => void;
+  closeSlides: () => void;
+  openBuild: () => void;
+  closeBuild: () => void;
 };
 
 const EMBEDDING_TIMERS = new Map<string, number>();
@@ -130,12 +135,13 @@ export const useProjectsStore = create<ProjectsState>()(
       sidebarHighlight: "new-chat",
       editingId: null,
       libraryProjectId: null,
-      apiProjectId: null,
       threadProjects: {},
       isBrowsing: false,
       isCreating: false,
       isLibrary: false,
-      isApi: false,
+      isImageGen: false,
+      isSlides: false,
+      isBuild: false,
       addProject: (input) => {
         const payload: CreateProjectInput =
           typeof input === "string" || input == null
@@ -162,9 +168,10 @@ export const useProjectsStore = create<ProjectsState>()(
           isBrowsing: true,
           isCreating: false,
           isLibrary: false,
-          isApi: false,
+          isImageGen: false,
+          isSlides: false,
+          isBuild: false,
           libraryProjectId: null,
-          apiProjectId: null,
           editingId: null,
         }));
         if (status === "embedding") {
@@ -212,9 +219,10 @@ export const useProjectsStore = create<ProjectsState>()(
           isBrowsing: true,
           isCreating: false,
           isLibrary: false,
-          isApi: false,
+          isImageGen: false,
+          isSlides: false,
+          isBuild: false,
           libraryProjectId: null,
-          apiProjectId: null,
           editingId: null,
         }));
 
@@ -282,8 +290,6 @@ export const useProjectsStore = create<ProjectsState>()(
             editingId: state.editingId === id ? null : state.editingId,
             libraryProjectId:
               state.libraryProjectId === id ? null : state.libraryProjectId,
-            apiProjectId:
-              state.apiProjectId === id ? null : state.apiProjectId,
             threadProjects,
           };
         });
@@ -296,9 +302,10 @@ export const useProjectsStore = create<ProjectsState>()(
           isBrowsing: false,
           isCreating: false,
           isLibrary: false,
-          isApi: false,
+          isImageGen: false,
+          isSlides: false,
+          isBuild: false,
           libraryProjectId: null,
-          apiProjectId: null,
           editingId: null,
         }),
       openChatFromChats: (projectId) =>
@@ -309,9 +316,10 @@ export const useProjectsStore = create<ProjectsState>()(
           isBrowsing: false,
           isCreating: false,
           isLibrary: false,
-          isApi: false,
+          isImageGen: false,
+          isSlides: false,
+          isBuild: false,
           libraryProjectId: null,
-          apiProjectId: null,
           editingId: null,
         }),
       restoreProjectSelection: (id) =>
@@ -330,9 +338,10 @@ export const useProjectsStore = create<ProjectsState>()(
           isBrowsing: false,
           isCreating: false,
           isLibrary: false,
-          isApi: false,
+          isImageGen: false,
+          isSlides: false,
+          isBuild: false,
           libraryProjectId: null,
-          apiProjectId: null,
           editingId: null,
         }),
       assignThreadProject: (threadId, projectId, options) => {
@@ -370,9 +379,13 @@ export const useProjectsStore = create<ProjectsState>()(
           editingId: null,
           isBrowsing: false,
           isLibrary: false,
-          isApi: false,
+          isImageGen: false,
+          isSlides: false,
+          isBuild: false,
           libraryProjectId: null,
-          apiProjectId: null,
+          // Only Add project should be lit — dim New chat + CHATS rows.
+          newChatSpotlight: false,
+          sidebarHighlight: "new-chat",
         }),
       openEditProject: (id) =>
         set({
@@ -380,9 +393,12 @@ export const useProjectsStore = create<ProjectsState>()(
           editingId: id,
           isBrowsing: false,
           isLibrary: false,
-          isApi: false,
+          isImageGen: false,
+          isSlides: false,
+          isBuild: false,
           libraryProjectId: null,
-          apiProjectId: null,
+          newChatSpotlight: false,
+          sidebarHighlight: "new-chat",
         }),
       closeCreateProject: () =>
         set({
@@ -390,18 +406,20 @@ export const useProjectsStore = create<ProjectsState>()(
           editingId: null,
           isBrowsing: true,
           isLibrary: false,
-          isApi: false,
+          isImageGen: false,
+          isSlides: false,
+          isBuild: false,
           libraryProjectId: null,
-          apiProjectId: null,
         }),
       openBrowseProjects: () =>
         set({
           isBrowsing: true,
           isCreating: false,
           isLibrary: false,
-          isApi: false,
+          isImageGen: false,
+          isSlides: false,
+          isBuild: false,
           libraryProjectId: null,
-          apiProjectId: null,
           editingId: null,
           newChatSpotlight: false,
           // Top nav wins — dim project rows while browsing.
@@ -414,18 +432,26 @@ export const useProjectsStore = create<ProjectsState>()(
           libraryProjectId: projectId ?? null,
           isBrowsing: false,
           isCreating: false,
-          isApi: false,
-          apiProjectId: null,
+          isImageGen: false,
+          isSlides: false,
+          isBuild: false,
           editingId: null,
           newChatSpotlight: false,
           sidebarHighlight: "new-chat",
         }),
       closeLibrary: () =>
-        set({ isLibrary: false, libraryProjectId: null }),
-      openApi: (projectId = null) =>
         set({
-          isApi: true,
-          apiProjectId: projectId ?? null,
+          isLibrary: false,
+          libraryProjectId: null,
+          isImageGen: false,
+          isSlides: false,
+          isBuild: false,
+        }),
+      openImageGen: () =>
+        set({
+          isImageGen: true,
+          isSlides: false,
+          isBuild: false,
           isLibrary: false,
           libraryProjectId: null,
           isBrowsing: false,
@@ -434,7 +460,35 @@ export const useProjectsStore = create<ProjectsState>()(
           newChatSpotlight: false,
           sidebarHighlight: "new-chat",
         }),
-      closeApi: () => set({ isApi: false, apiProjectId: null }),
+      closeImageGen: () => set({ isImageGen: false }),
+      openSlides: () =>
+        set({
+          isSlides: true,
+          isBuild: false,
+          isImageGen: false,
+          isLibrary: false,
+          libraryProjectId: null,
+          isBrowsing: false,
+          isCreating: false,
+          editingId: null,
+          newChatSpotlight: false,
+          sidebarHighlight: "new-chat",
+        }),
+      closeSlides: () => set({ isSlides: false }),
+      openBuild: () =>
+        set({
+          isBuild: true,
+          isSlides: false,
+          isImageGen: false,
+          isLibrary: false,
+          libraryProjectId: null,
+          isBrowsing: false,
+          isCreating: false,
+          editingId: null,
+          newChatSpotlight: false,
+          sidebarHighlight: "new-chat",
+        }),
+      closeBuild: () => set({ isBuild: false }),
     }),
     {
       name: "ai-rag-projects",
@@ -468,9 +522,10 @@ export const useProjectsStore = create<ProjectsState>()(
           isCreating: false,
           isBrowsing: false,
           isLibrary: false,
-          isApi: false,
+          isImageGen: false,
+          isSlides: false,
+          isBuild: false,
           libraryProjectId: null,
-          apiProjectId: null,
           editingId: null,
         };
       },

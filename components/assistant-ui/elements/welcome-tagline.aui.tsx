@@ -3,13 +3,40 @@
 import { useEffect, useState, type FC } from "react";
 import { cn } from "@/lib/utils";
 
-const PROMPTS = [
+const DEFAULT_PROMPTS = [
   "Ask anything",
   "Summarize a PDF in this project",
   "Compare Bitcoin to last week",
   "Draft a research brief",
   "Find the key claim in your docs",
   "Turn notes into next steps",
+] as const;
+
+export const IMAGINE_PROMPTS = [
+  "Paint with words. Soft light, quiet mood, fine grain.",
+  "A rainy alley at dusk, neon reflections on wet stone.",
+  "Portrait in window light, film still, gentle grain.",
+  "Fog over a quiet lake, muted blues and silver.",
+  "Sun through curtains, dust motes, warm stillness.",
+  "City rooftop at blue hour, soft haze, distant glow.",
+] as const;
+
+export const SLIDES_PROMPTS = [
+  "Describe a deck and generate slides.",
+  "Pitch deck for a climate-tech startup.",
+  "Ten slides on Q3 product strategy.",
+  "Workshop outline with clear next steps.",
+  "Investor update: traction, runway, ask.",
+  "Keynote: why this idea matters now.",
+] as const;
+
+export const BUILD_PROMPTS = [
+  "Describe a website and generate the layout.",
+  "Hero, one CTA, and a product story in three beats.",
+  "Marketing site for a climate-tech launch.",
+  "Portfolio site with case-study highlights.",
+  "SaaS homepage: problem, product, pricing teaser.",
+  "Event site with date, speakers, and RSVP.",
 ] as const;
 
 const TYPE_MS = 38;
@@ -21,7 +48,15 @@ const GAP_MS = 420;
  * Cycling typewriter under the welcome brand.
  * Falls back to a static line when the user prefers reduced motion.
  */
-export const WelcomeTagline: FC<{ className?: string }> = ({ className }) => {
+export const WelcomeTagline: FC<{
+  className?: string;
+  prompts?: readonly string[];
+  fallback?: string;
+}> = ({
+  className,
+  prompts = DEFAULT_PROMPTS,
+  fallback = prompts[0] ?? "Ask anything",
+}) => {
   const [index, setIndex] = useState(0);
   const [text, setText] = useState("");
   const [phase, setPhase] = useState<"typing" | "holding" | "deleting">(
@@ -38,9 +73,15 @@ export const WelcomeTagline: FC<{ className?: string }> = ({ className }) => {
   }, []);
 
   useEffect(() => {
+    setIndex(0);
+    setText("");
+    setPhase("typing");
+  }, [prompts]);
+
+  useEffect(() => {
     if (reducedMotion) return;
 
-    const full = PROMPTS[index] ?? PROMPTS[0];
+    const full = prompts[index] ?? prompts[0] ?? "";
     let timer: number;
 
     if (phase === "typing") {
@@ -59,19 +100,17 @@ export const WelcomeTagline: FC<{ className?: string }> = ({ className }) => {
       }, DELETE_MS);
     } else {
       timer = window.setTimeout(() => {
-        setIndex((current) => (current + 1) % PROMPTS.length);
+        setIndex((current) => (current + 1) % prompts.length);
         setPhase("typing");
       }, GAP_MS);
     }
 
     return () => window.clearTimeout(timer);
-  }, [text, phase, index, reducedMotion]);
+  }, [text, phase, index, reducedMotion, prompts]);
 
   if (reducedMotion) {
     return (
-      <p className={cn("mt-2 text-sm text-zinc-500", className)}>
-        Ask anything
-      </p>
+      <p className={cn("mt-2 text-sm text-zinc-500", className)}>{fallback}</p>
     );
   }
 

@@ -31,6 +31,7 @@ export const ComposerProjectPicker: FC = () => {
   const threadProjects = useProjectsStore((s) => s.threadProjects);
   const selectProject = useProjectsStore((s) => s.selectProject);
   const openCreateProject = useProjectsStore((s) => s.openCreateProject);
+  const isBuild = useProjectsStore((s) => s.isBuild);
 
   const mainThreadId = useAuiState((s) => s.threads.mainThreadId);
   const messageCount = useAuiState((s) => s.threads.main.messages.length);
@@ -56,12 +57,11 @@ export const ComposerProjectPicker: FC = () => {
     [projects],
   );
 
-  const visible = useMemo(() => {
-    const selected = orderedProjects.find((project) => project.id === selectedId);
-    const rest = orderedProjects.filter((project) => project.id !== selectedId);
-    const base = selected ? [selected, ...rest] : rest;
-    return base.slice(0, MAX_VISIBLE);
-  }, [orderedProjects, selectedId]);
+  // Keep creation order stable — selection only changes the active pill style.
+  const visible = useMemo(
+    () => orderedProjects.slice(0, MAX_VISIBLE),
+    [orderedProjects],
+  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -112,6 +112,9 @@ export const ComposerProjectPicker: FC = () => {
 
   // Locked chats show the project name inside the composer action bar instead.
   if (locked) return null;
+  // Build website: no Create project control under the composer.
+  const showAdd = !isBuild;
+  if (visible.length === 0 && !showSearch && !showAdd) return null;
 
   return (
     <div
@@ -217,14 +220,16 @@ export const ComposerProjectPicker: FC = () => {
         </div>
       ) : null}
 
-      <button
-        type="button"
-        onClick={openCreateProject}
-        className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-dashed border-white/15 bg-transparent px-2.5 text-xs text-zinc-500 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-zinc-300"
-      >
-        <PlusIcon className="size-3.5 shrink-0" />
-        <span>Add</span>
-      </button>
+      {showAdd ? (
+        <button
+          type="button"
+          onClick={openCreateProject}
+          className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-dashed border-white/15 bg-transparent px-2.5 text-xs text-zinc-500 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-zinc-300"
+        >
+          <PlusIcon className="size-3.5 shrink-0" />
+          <span>Add</span>
+        </button>
+      ) : null}
     </div>
   );
 };
