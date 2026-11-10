@@ -10,7 +10,6 @@ import {
 } from "react";
 import {
   FileTextIcon,
-  FolderIcon,
   PlusIcon,
   Trash2Icon,
   UploadIcon,
@@ -21,6 +20,7 @@ import { getProjectIcon } from "@/lib/project-icons";
 import {
   sortProjectsByCreated,
   useProjectsStore,
+  type Project,
   type ProjectFile,
 } from "@/lib/projects-store";
 
@@ -29,6 +29,33 @@ function formatSize(bytes: number) {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
+
+const LibraryFileCard: FC<{
+  file: ProjectFile;
+  onRemove: () => void;
+}> = ({ file, onRemove }) => (
+  <div className="group/file relative flex items-center gap-3 rounded-2xl border border-white/[0.07] bg-[#1c1c1f] px-3.5 py-3 pr-10 transition-colors hover:border-white/14 hover:bg-[#222226]">
+    <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/5 text-zinc-300">
+      <FileTextIcon className="size-5" strokeWidth={1.75} />
+    </span>
+    <div className="min-w-0 flex-1">
+      <p className="truncate text-sm font-medium tracking-tight text-zinc-100">
+        {file.name}
+      </p>
+      <p className="mt-1 truncate text-xs text-zinc-500">
+        {formatSize(file.size)}
+      </p>
+    </div>
+    <button
+      type="button"
+      aria-label={`Delete ${file.name}`}
+      className="absolute top-1/2 right-2 inline-flex size-7 -translate-y-1/2 items-center justify-center rounded-lg text-zinc-500 opacity-0 transition-opacity hover:bg-white/10 hover:text-zinc-200 group-hover/file:opacity-100 focus-visible:opacity-100"
+      onClick={onRemove}
+    >
+      <Trash2Icon className="size-3.5" />
+    </button>
+  </div>
+);
 
 function toProjectFiles(list: FileList | File[]): ProjectFile[] {
   return Array.from(list)
@@ -63,15 +90,15 @@ export const LibraryPage: FC = () => {
     return projects.filter((project) => project.id === libraryProjectId);
   }, [projects, libraryProjectId]);
 
-  const entries = useMemo(
+  const grouped = useMemo(
     () =>
-      scoped.flatMap((project) =>
-        (project.files ?? []).map((file) => ({
+      sortProjectsByCreated(scoped)
+        .map((project) => ({
           project,
-          file,
-        })),
-      ),
-    [scoped],
+          files: project.files ?? [],
+        }))
+        .filter((group) => group.files.length > 0 || Boolean(libraryProjectId)),
+    [scoped, libraryProjectId],
   );
 
   const totalCount = useMemo(
@@ -79,6 +106,8 @@ export const LibraryPage: FC = () => {
       projects.reduce((sum, project) => sum + (project.files?.length ?? 0), 0),
     [projects],
   );
+  const showGrouped = !libraryProjectId;
+  const hasFiles = grouped.some((group) => group.files.length > 0);
 
   const activeProject = libraryProjectId
     ? (projects.find((project) => project.id === libraryProjectId) ?? null)
@@ -219,7 +248,7 @@ export const LibraryPage: FC = () => {
         </div>
       ) : null}
 
-      {entries.length === 0 ? (
+      {!hasFiles ? (
         <div
           role={canAdd ? "button" : undefined}
           tabIndex={canAdd ? 0 : undefined}
@@ -259,47 +288,52 @@ export const LibraryPage: FC = () => {
               : "Select a project above, then add PDFs as shared knowledge."}
           </p>
         </div>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {entries.map(({ project, file }) => {
+      ) : showGrouped ? (
+        <div className="flex flex-col gap-8">
+          {grouped.map(({ project, files }) => {
             const { Icon, className: iconClass } = getProjectIcon(project.icon);
             return (
-              <div
-                key={`${project.id}-${file.id}`}
-                className="group/file flex items-center gap-3 rounded-2xl border border-white/[0.07] bg-[#1c1c1f] px-4 py-3.5"
-              >
-                <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/5 text-zinc-300">
-                  <FileTextIcon className="size-5" strokeWidth={1.75} />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[15px] font-medium tracking-tight text-zinc-100">
-                    {file.name}
-                  </p>
-                  <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-zinc-500">
-                    <span
-                      className={`inline-flex size-5 shrink-0 items-center justify-center rounded-md ${iconClass}`}
-                    >
-                      <Icon className="size-3" />
-                    </span>
-                    <span className="inline-flex min-w-0 items-center gap-1 truncate">
-                      <FolderIcon className="size-3 shrink-0 opacity-70" />
-                      <span className="truncate">{project.name}</span>
-                    </span>
-                    <span className="shrink-0">·</span>
-                    <span className="shrink-0">{formatSize(file.size)}</span>
-                  </div>
+              <section key={project.id} className="flex flex-col gap-3">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <span
+                    className={cn(
+                      "inline-flex size-7 shrink-0 items-center justify-center rounded-lg",
+                      iconClass,
+                    )}
+                  >
+                    <Icon className="size-3.5" />
+                  </span>
+                  <h3 className="min-w-0 truncate text-sm font-medium tracking-tight text-zinc-100">
+                    {project.name}
+                  </h3>
+                  <span className="shrink-0 text-xs text-zinc-500">
+                    {files.length} PDF{files.length === 1 ? "" : "s"}
+                  </span>
                 </div>
-                <button
-                  type="button"
-                  aria-label={`Delete ${file.name}`}
-                  className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-zinc-500 opacity-0 transition-opacity hover:bg-white/10 hover:text-zinc-200 group-hover/file:opacity-100 focus-visible:opacity-100"
-                  onClick={() => removeProjectFile(project.id, file.id)}
-                >
-                  <Trash2Icon className="size-4" />
-                </button>
-              </div>
+                <div className="grid w-full grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+                  {files.map((file) => (
+                    <LibraryFileCard
+                      key={file.id}
+                      file={file}
+                      onRemove={() => removeProjectFile(project.id, file.id)}
+                    />
+                  ))}
+                </div>
+              </section>
             );
           })}
+        </div>
+      ) : (
+        <div className="grid w-full grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+          {grouped.flatMap(({ project, files }) =>
+            files.map((file) => (
+              <LibraryFileCard
+                key={file.id}
+                file={file}
+                onRemove={() => removeProjectFile(project.id, file.id)}
+              />
+            )),
+          )}
         </div>
       )}
     </div>

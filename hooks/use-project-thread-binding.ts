@@ -2,7 +2,11 @@
 
 import { useEffect, useRef } from "react";
 import { useAui, useAuiState } from "@assistant-ui/react";
+import { useChatSessionsStore } from "@/lib/chat-sessions-store";
 import { useProjectsStore } from "@/lib/projects-store";
+
+/** Once per JS realm — survives component remounts (unlike useRef). */
+let didResetToNewChatOnLoad = false;
 
 /**
  * Permanent project membership:
@@ -23,13 +27,19 @@ export function useProjectThreadBinding() {
   const threadItems = useAuiState((s) => s.threads.threadItems);
   const prevThreadIdRef = useRef<string | null>(null);
   const prevMessageCountRef = useRef<number>(0);
-  const didResetOnLoadRef = useRef(false);
 
-  // F5 / first mount → always land on a clean New chat (no project).
+  // F5 / first page load only — module flag so React remounts do NOT kick the
+  // user back to New Chat while they are opening a sidebar session.
   useEffect(() => {
-    if (didResetOnLoadRef.current) return;
-    didResetOnLoadRef.current = true;
+    if (didResetToNewChatOnLoad) return;
+    didResetToNewChatOnLoad = true;
+    useChatSessionsStore.getState().clearActiveSession();
     useProjectsStore.getState().startNormalChat();
+    try {
+      aui.composer.setText("");
+    } catch {
+      // ignore
+    }
     aui.threads.switchToNewThread();
   }, [aui]);
 

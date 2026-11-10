@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState, type FC } from "react";
 import { createPortal } from "react-dom";
 import {
-  KeyRoundIcon,
   LibraryIcon,
   MoreHorizontalIcon,
   PencilIcon,
@@ -34,7 +33,6 @@ export const ProjectOptionsMenu: FC<ProjectOptionsMenuProps> = ({
   const pos = useFixedMenuPosition(open, triggerRef);
   const openEditProject = useProjectsStore((s) => s.openEditProject);
   const openLibrary = useProjectsStore((s) => s.openLibrary);
-  const openApi = useProjectsStore((s) => s.openApi);
   const removeProject = useProjectsStore((s) => s.removeProject);
 
   const setMenuOpen = (next: boolean) => {
@@ -95,19 +93,6 @@ export const ProjectOptionsMenu: FC<ProjectOptionsMenuProps> = ({
             >
               <LibraryIcon className="size-3.5 shrink-0" />
               Library
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className={itemClass}
-              onClick={(event) => {
-                event.stopPropagation();
-                setMenuOpen(false);
-                openApi(project.id);
-              }}
-            >
-              <KeyRoundIcon className="size-3.5 shrink-0" />
-              API
             </button>
             <button
               type="button"

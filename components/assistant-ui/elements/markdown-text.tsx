@@ -1,26 +1,26 @@
 "use client";
 
-import "@assistant-ui/react-markdown/styles/dot.css";
-
 import {
+  StreamdownTextPrimitive,
+  useIsStreamdownCodeBlock,
   type CodeHeaderProps,
-  MarkdownTextPrimitive,
-  type MarkdownTextPrimitiveProps,
-  memoizeMarkdownComponents,
-  useIsMarkdownCodeBlock,
-} from "@assistant-ui/react-markdown";
-import remarkGfm from "remark-gfm";
+  type StreamdownTextComponents,
+  type StreamdownTextPrimitiveProps,
+} from "@assistant-ui/react-streamdown";
+import { code } from "@streamdown/code";
+import { cjk } from "@streamdown/cjk";
 import { type FC, memo, useMemo, useRef } from "react";
 import type { TextMessagePartProps } from "@assistant-ui/react";
 import { CheckIcon, CopyIcon } from "lucide-react";
+import "streamdown/styles.css";
 
 import { TooltipIconButton } from "@/components/assistant-ui/elements/tooltip-icon-button";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { cn } from "@/lib/utils";
 
 type MarkdownTextProps = Partial<TextMessagePartProps> & {
-  components?: Parameters<typeof memoizeMarkdownComponents>[0];
-  componentsByLanguage?: MarkdownTextPrimitiveProps["componentsByLanguage"];
+  components?: StreamdownTextComponents;
+  componentsByLanguage?: StreamdownTextPrimitiveProps["componentsByLanguage"];
 };
 
 const useShallowStable = <T extends Record<string, unknown> | undefined>(
@@ -39,38 +39,52 @@ const useShallowStable = <T extends Record<string, unknown> | undefined>(
   return ref.current;
 };
 
+/**
+ * Vercel Streamdown path (same family as AI Elements / Cursor-class UIs):
+ * completed markdown blocks stay memoized; only the trailing block grows;
+ * new words blur/fade in instead of re-parsing the whole message.
+ */
 const MarkdownTextImpl: FC<MarkdownTextProps> = ({
   components,
   componentsByLanguage,
 }) => {
   const stableComponents = useShallowStable(components);
   const stableComponentsByLanguage = useShallowStable(componentsByLanguage);
-  const markdownComponents = useMemo(() => {
+  const markdownComponents = useMemo((): StreamdownTextComponents => {
     if (!stableComponents) return defaultComponents;
     return {
       ...defaultComponents,
-      ...memoizeMarkdownComponents(stableComponents),
+      ...stableComponents,
     };
   }, [stableComponents]);
 
   return (
-    <MarkdownTextPrimitive
-      remarkPlugins={[remarkGfm]}
+    <StreamdownTextPrimitive
+      mode="streaming"
       className="aui-md"
+      plugins={{ code, cjk }}
+      shikiTheme={["github-light", "github-dark"]}
       components={markdownComponents}
       componentsByLanguage={stableComponentsByLanguage}
-      defer
+      controls={false}
+      // Word entrance only (Streamdown memoizes finished blocks). Prefer
+      // fade over blur — filter:blur on every token is layout/GPU heavy.
+      animated={{
+        animation: "fadeIn",
+        duration: 150,
+        easing: "ease-out",
+      }}
     />
   );
 };
 
 export const MarkdownText = memo(MarkdownTextImpl);
 
-const CodeHeader: FC<CodeHeaderProps> = ({ language, code }) => {
+const CodeHeader: FC<CodeHeaderProps> = ({ language, code: codeText }) => {
   const { isCopied, copyToClipboard } = useCopyToClipboard();
   const onCopy = () => {
-    if (!code || isCopied) return;
-    copyToClipboard(code);
+    if (!codeText || isCopied) return;
+    copyToClipboard(codeText);
   };
 
   return (
@@ -90,7 +104,7 @@ const CodeHeader: FC<CodeHeaderProps> = ({ language, code }) => {
   );
 };
 
-const defaultComponents = memoizeMarkdownComponents({
+const defaultComponents = {
   h1: ({ className, ...props }) => (
     <h1
       className={cn(
@@ -259,7 +273,7 @@ const defaultComponents = memoizeMarkdownComponents({
     />
   ),
   code: function Code({ className, ...props }) {
-    const isCodeBlock = useIsMarkdownCodeBlock();
+    const isCodeBlock = useIsStreamdownCodeBlock();
     return (
       <code
         className={cn(
@@ -272,4 +286,4 @@ const defaultComponents = memoizeMarkdownComponents({
     );
   },
   CodeHeader,
-});
+} as StreamdownTextComponents;

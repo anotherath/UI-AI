@@ -18,19 +18,15 @@ import { ProjectOptionsMenu } from "@/components/assistant-ui/elements/project-o
 
 const UserProjectCard: FC<{
   project: Project;
-  active: boolean;
   onSelect: () => void;
-}> = ({ project, active, onSelect }) => {
+}> = ({ project, onSelect }) => {
   const { Icon, className: iconClass } = getProjectIcon(project.icon);
   const embedding = project.status === "embedding";
 
   return (
     <div
       className={cn(
-        "group/card relative rounded-2xl border transition-colors",
-        active
-          ? "border-white/20 bg-[#26262b]"
-          : "border-white/[0.07] bg-[#1c1c1f] hover:border-white/14 hover:bg-[#222226]",
+        "group/card relative rounded-2xl border border-white/[0.07] bg-[#1c1c1f] transition-colors hover:border-white/14 hover:bg-[#222226]",
         embedding && "border-white/15",
       )}
     >
@@ -94,7 +90,6 @@ export const ProjectsBrowse: FC = () => {
     () => sortProjectsByCreated(projects),
     [projects],
   );
-  const selectedId = useProjectsStore((s) => s.selectedId);
   const selectProject = useProjectsStore((s) => s.selectProject);
   const openCreateProject = useProjectsStore((s) => s.openCreateProject);
   const empty = orderedProjects.length === 0;
@@ -150,7 +145,6 @@ export const ProjectsBrowse: FC = () => {
             <UserProjectCard
               key={project.id}
               project={project}
-              active={project.id === selectedId}
               onSelect={() => openProject(project.id)}
             />
           ))}

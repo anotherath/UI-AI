@@ -33,10 +33,13 @@ export const ProjectsSection: FC = () => {
   );
   const selectedId = useProjectsStore((s) => s.selectedId);
   const sidebarHighlight = useProjectsStore((s) => s.sidebarHighlight);
+  const isCreating = useProjectsStore((s) => s.isCreating);
+  const editingId = useProjectsStore((s) => s.editingId);
   const threadProjects = useProjectsStore((s) => s.threadProjects);
   const selectProject = useProjectsStore((s) => s.selectProject);
   const openCreateProject = useProjectsStore((s) => s.openCreateProject);
   const openBrowseProjects = useProjectsStore((s) => s.openBrowseProjects);
+  const isAddProjectActive = isCreating && editingId == null;
 
   const threadIds = useAuiState((s) => s.threads.threadIds);
   const threadItems = useAuiState((s) => s.threads.threadItems);
@@ -81,16 +84,30 @@ export const ProjectsSection: FC = () => {
   ]);
 
   const nestedCountRef = useRef<Record<string, number>>({});
+  const nestedActiveRef = useRef<Record<string, boolean>>({});
+  /** Project ids the user just collapsed — skip one auto-expand pass. */
+  const skipAutoExpandRef = useRef<Set<string>>(new Set());
 
-  // Auto-expand a project when it gains a session or hosts the active chat.
+  // Auto-expand only on real events (new nested chat, or a nested chat
+  // newly becomes active). Do not fight an explicit user collapse.
   useEffect(() => {
     const toOpen: string[] = [];
     for (const [projectId, threads] of threadsByProject) {
       const prev = nestedCountRef.current[projectId] ?? 0;
       const grew = threads.length > prev;
       const hasActive = threads.some((thread) => thread.isActive);
+      const wasActive = nestedActiveRef.current[projectId] ?? false;
       nestedCountRef.current[projectId] = threads.length;
-      if (grew || hasActive) toOpen.push(projectId);
+      nestedActiveRef.current[projectId] = hasActive;
+
+      const skip = skipAutoExpandRef.current.has(projectId);
+      if (skip) {
+        // Still allow expand when a brand-new nested chat appears.
+        skipAutoExpandRef.current.delete(projectId);
+        if (grew) toOpen.push(projectId);
+        continue;
+      }
+      if (grew || (hasActive && !wasActive)) toOpen.push(projectId);
     }
     if (toOpen.length === 0) return;
     setCollapsedIds((prev) => {
@@ -154,10 +171,21 @@ export const ProjectsSection: FC = () => {
             <button
               type="button"
               data-slot="aui_projects-empty-add"
-              className="flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-sm text-zinc-500 transition-colors hover:bg-muted hover:text-zinc-200"
+              aria-pressed={isAddProjectActive}
+              className={cn(
+                "flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-sm transition-colors hover:bg-muted hover:text-zinc-200",
+                isAddProjectActive
+                  ? "bg-muted text-zinc-100"
+                  : "text-zinc-500",
+              )}
               onClick={openCreateProject}
             >
-              <PlusIcon className="size-4 shrink-0" />
+              <PlusIcon
+                className={cn(
+                  "size-4 shrink-0",
+                  isAddProjectActive ? "text-zinc-200" : undefined,
+                )}
+              />
               <span className="truncate">Add project</span>
             </button>
           ) : (
@@ -193,12 +221,18 @@ export const ProjectsSection: FC = () => {
                         aria-expanded={nested.length > 0 ? chatsOpen : undefined}
                         onClick={() => {
                           if (nested.length > 0) {
+                            const willCollapse = !collapsedIds.has(project.id);
                             setCollapsedIds((prev) => {
                               const next = new Set(prev);
-                              if (next.has(project.id)) next.delete(project.id);
-                              else next.add(project.id);
+                              if (willCollapse) next.add(project.id);
+                              else next.delete(project.id);
                               return next;
                             });
+                            if (willCollapse) {
+                              skipAutoExpandRef.current.add(project.id);
+                            } else {
+                              skipAutoExpandRef.current.delete(project.id);
+                            }
                           }
                           // New session bound to this project (on first message).
                           aui.threads.switchToNewThread();

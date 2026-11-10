@@ -44,31 +44,34 @@ export type ProjectIconId =
   | "terminal"
   | "image";
 
+/** Shared neutral chrome for every project glyph (picker, cards, chips). */
+export const PROJECT_ICON_CHROME = "bg-white/5 text-zinc-400";
+
 export const PROJECT_ICONS: {
   id: ProjectIconId;
   Icon: LucideIcon;
   className: string;
 }[] = [
-  { id: "folder", Icon: FolderIcon, className: "bg-sky-500/15 text-sky-300" },
-  { id: "file", Icon: FileTextIcon, className: "bg-zinc-500/15 text-zinc-300" },
-  { id: "briefcase", Icon: BriefcaseIcon, className: "bg-amber-500/15 text-amber-300" },
-  { id: "scale", Icon: ScaleIcon, className: "bg-violet-500/15 text-violet-300" },
-  { id: "sparkles", Icon: SparklesIcon, className: "bg-fuchsia-500/15 text-fuchsia-300" },
-  { id: "code", Icon: CodeIcon, className: "bg-cyan-500/15 text-cyan-300" },
-  { id: "book", Icon: BookOpenIcon, className: "bg-orange-500/15 text-orange-300" },
-  { id: "grad", Icon: GraduationCapIcon, className: "bg-purple-500/15 text-purple-300" },
-  { id: "heart", Icon: HeartIcon, className: "bg-rose-500/15 text-rose-300" },
-  { id: "bulb", Icon: LightbulbIcon, className: "bg-yellow-500/15 text-yellow-300" },
-  { id: "rocket", Icon: RocketIcon, className: "bg-red-500/15 text-red-300" },
-  { id: "globe", Icon: GlobeIcon, className: "bg-teal-500/15 text-teal-300" },
-  { id: "bot", Icon: BotIcon, className: "bg-blue-500/15 text-blue-300" },
-  { id: "palette", Icon: PaletteIcon, className: "bg-pink-500/15 text-pink-300" },
-  { id: "music", Icon: MusicIcon, className: "bg-emerald-500/15 text-emerald-300" },
-  { id: "camera", Icon: CameraIcon, className: "bg-slate-400/15 text-slate-300" },
-  { id: "beaker", Icon: BeakerIcon, className: "bg-lime-500/15 text-lime-300" },
-  { id: "stethoscope", Icon: StethoscopeIcon, className: "bg-sky-500/15 text-sky-200" },
-  { id: "terminal", Icon: TerminalIcon, className: "bg-zinc-400/15 text-zinc-200" },
-  { id: "image", Icon: ImageIcon, className: "bg-orange-500/15 text-orange-200" },
+  { id: "folder", Icon: FolderIcon, className: PROJECT_ICON_CHROME },
+  { id: "file", Icon: FileTextIcon, className: PROJECT_ICON_CHROME },
+  { id: "briefcase", Icon: BriefcaseIcon, className: PROJECT_ICON_CHROME },
+  { id: "scale", Icon: ScaleIcon, className: PROJECT_ICON_CHROME },
+  { id: "sparkles", Icon: SparklesIcon, className: PROJECT_ICON_CHROME },
+  { id: "code", Icon: CodeIcon, className: PROJECT_ICON_CHROME },
+  { id: "book", Icon: BookOpenIcon, className: PROJECT_ICON_CHROME },
+  { id: "grad", Icon: GraduationCapIcon, className: PROJECT_ICON_CHROME },
+  { id: "heart", Icon: HeartIcon, className: PROJECT_ICON_CHROME },
+  { id: "bulb", Icon: LightbulbIcon, className: PROJECT_ICON_CHROME },
+  { id: "rocket", Icon: RocketIcon, className: PROJECT_ICON_CHROME },
+  { id: "globe", Icon: GlobeIcon, className: PROJECT_ICON_CHROME },
+  { id: "bot", Icon: BotIcon, className: PROJECT_ICON_CHROME },
+  { id: "palette", Icon: PaletteIcon, className: PROJECT_ICON_CHROME },
+  { id: "music", Icon: MusicIcon, className: PROJECT_ICON_CHROME },
+  { id: "camera", Icon: CameraIcon, className: PROJECT_ICON_CHROME },
+  { id: "beaker", Icon: BeakerIcon, className: PROJECT_ICON_CHROME },
+  { id: "stethoscope", Icon: StethoscopeIcon, className: PROJECT_ICON_CHROME },
+  { id: "terminal", Icon: TerminalIcon, className: PROJECT_ICON_CHROME },
+  { id: "image", Icon: ImageIcon, className: PROJECT_ICON_CHROME },
 ];
 
 export const DEFAULT_PROJECT_ICON: ProjectIconId = "folder";
