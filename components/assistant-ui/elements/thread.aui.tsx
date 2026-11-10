@@ -1,15 +1,20 @@
 "use client";
 
 import {
-  ComposerAddAttachment,
   ComposerAttachments,
   UserMessageAttachments,
 } from "@/components/assistant-ui/elements/attachment.aui";
-import { ApiPage } from "@/components/assistant-ui/elements/api-page.aui";
 import { ComposerActiveProject } from "@/components/assistant-ui/elements/composer-active-project.aui";
+import {
+  ComposerModePicker,
+  ComposerModelPicker,
+} from "@/components/assistant-ui/elements/composer-mode-model.aui";
 import { ComposerProjectPicker } from "@/components/assistant-ui/elements/composer-project-picker.aui";
 import { CreateProjectScreen } from "@/components/assistant-ui/elements/create-project-screen.aui";
+import { BuildPage } from "@/components/assistant-ui/elements/build-page.aui";
+import { ImageGenPage } from "@/components/assistant-ui/elements/image-gen-page.aui";
 import { LibraryPage } from "@/components/assistant-ui/elements/library-page.aui";
+import { SlidesPage } from "@/components/assistant-ui/elements/slides-page.aui";
 import {
   ContextRail,
   ThreadTopActions,
@@ -21,26 +26,34 @@ import { File, getFileHref } from "@/components/assistant-ui/elements/file";
 import { ThreadFollowupSuggestions } from "@/components/assistant-ui/elements/follow-up-suggestions.aui";
 import { Image } from "@/components/assistant-ui/elements/image";
 import { MarkdownText } from "@/components/assistant-ui/elements/markdown-text";
-import {
-  Reasoning,
-  ReasoningContent,
-  ReasoningRoot,
-  ReasoningText,
-  ReasoningTrigger,
-} from "@/components/assistant-ui/elements/reasoning.aui";
 import { ToolFallback } from "@/components/assistant-ui/elements/tool-fallback.aui";
 import {
   ToolGroupContent,
   ToolGroupRoot,
   ToolGroupTrigger,
 } from "@/components/assistant-ui/elements/tool-group.aui";
+import { SelectionAskMenu } from "@/components/assistant-ui/elements/selection-ask-menu.aui";
+import {
+  flushInlineComposerDraft,
+  InlineChipComposerInput,
+} from "@/components/assistant-ui/elements/inline-chip-composer-input";
+import { SelectionAwareText } from "@/components/assistant-ui/elements/selection-chip";
 import { TooltipIconButton } from "@/components/assistant-ui/elements/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { Skeleton } from "@/components/ui/skeleton";
+import { getChatSession } from "@/lib/chat-api";
+import { useAgentRunStatusStore } from "@/lib/agent-run-status-store";
+import { getBackendSessionId } from "@/lib/chat-session-map";
+import { useChatSessionsStore } from "@/lib/chat-sessions-store";
+import { useContextRailStore } from "@/lib/context-rail-store";
+import { openBackendChatSession } from "@/lib/open-chat-session";
+import {
+  getLastSessionUserMessageId,
+  setPendingMessageEdit,
+} from "@/lib/pending-message-edit";
+import { useSubsessionsStore } from "@/lib/subsessions-store";
 import { cn } from "@/lib/utils";
 import {
-  ActionBarMorePrimitive,
   ActionBarPrimitive,
   AuiIf,
   type AssistantState,
@@ -55,6 +68,7 @@ import {
   type ImageMessagePartComponent,
   type TextMessagePartComponent,
   type ToolCallMessagePartComponent,
+  useAui,
   useAuiState,
 } from "@assistant-ui/react";
 import {
@@ -65,9 +79,8 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   CopyIcon,
-  DownloadIcon,
+  MessageSquareIcon,
   MicIcon,
-  MoreHorizontalIcon,
   PencilIcon,
   PhoneIcon,
   RefreshCwIcon,
@@ -79,6 +92,7 @@ import {
 import {
   createContext,
   useContext,
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -112,11 +126,6 @@ const DefaultToolGroup: FC<PropsWithChildren<{ group: ThreadGroupPart }>> = ({
 
 const shouldShowComposerResume = (s: AssistantState) =>
   !!s.thread.canResume && s.composer.type === "thread" && s.composer.isEmpty;
-
-const reasoningDuration = (timing: ThreadGroupPart["timing"]) =>
-  timing?.completedAt === undefined
-    ? undefined
-    : Math.round((timing.completedAt - timing.startedAt) / 1000);
 
 /**
  * Optional component overrides for the thread. `AssistantMessage` and
@@ -183,51 +192,57 @@ const EMPTY_COMPONENTS: ThreadComponents = {};
 const ThreadComponentsContext =
   createContext<ThreadComponents>(EMPTY_COMPONENTS);
 
-// Startup exposes a loading placeholder thread; treat it as a new chat so
-// the composer mounts centered. Loads after startup keep the docked layout.
-const isNewChatView = (s: AssistantState) =>
-  s.thread.messages.length === 0 &&
-  (!s.thread.isLoading || s.threads.isLoading);
-
-// A switched thread that is still fetching its history: skeleton, not welcome.
+// Native thread history fetch (rare) — keep for a11y status only.
 const isHistoryLoadingView = (s: AssistantState) =>
   s.thread.messages.length === 0 &&
   s.thread.isLoading &&
   !s.thread.isDisabled &&
   !s.threads.isLoading;
 
-const ThreadHistorySkeleton: FC = () => (
-  <div
-    data-slot="aui_thread-history-skeleton"
-    role="status"
-    className="animate-in fade-in fill-mode-both flex flex-col gap-y-6 [animation-delay:150ms] [animation-duration:200ms]"
-  >
-    <span className="sr-only">Loading conversation</span>
-    <Skeleton className="ml-auto h-9 w-2/5 rounded-xl motion-reduce:animate-none" />
-    <div className="flex flex-col gap-y-2">
-      <Skeleton className="h-4 w-11/12 motion-reduce:animate-none" />
-      <Skeleton className="h-4 w-4/5 motion-reduce:animate-none" />
-      <Skeleton className="h-4 w-3/5 motion-reduce:animate-none" />
-    </div>
-    <Skeleton className="ml-auto h-9 w-1/3 rounded-xl motion-reduce:animate-none" />
-    <div className="flex flex-col gap-y-2">
-      <Skeleton className="h-4 w-10/12 motion-reduce:animate-none" />
-      <Skeleton className="h-4 w-2/3 motion-reduce:animate-none" />
-    </div>
-  </div>
-);
+/** Backend session open: history not hydrated yet — dock composer, no Welcome. */
+function useAwaitingBackendHistory(): boolean {
+  const mainThreadId = useAuiState((s) => s.threads.mainThreadId);
+  const messageCount = useAuiState((s) => s.thread.messages.length);
+  const hydratedIds = useChatSessionsStore((s) => s.hydratedMessageSessionIds);
+  const openingSessionId = useChatSessionsStore((s) => s.openingSessionId);
+
+  if (messageCount > 0) return false;
+  // Cover the gap between click and setBackendSessionId / hydrate.
+  if (openingSessionId) return true;
+  if (!mainThreadId) return false;
+  const sessionId = getBackendSessionId(mainThreadId);
+  if (!sessionId) return false;
+  return !hydratedIds[sessionId];
+}
 
 export const Thread: FC<ThreadProps> = ({
   components = EMPTY_COMPONENTS,
   autoFocus = true,
 }) => {
-  const isEmpty = useAuiState(isNewChatView);
+  const messageCount = useAuiState((s) => s.thread.messages.length);
+  const composerEmpty = useAuiState((s) => s.composer.isEmpty);
+  const isRunning = useAuiState((s) => s.thread.isRunning);
+  const awaitingBackendHistory = useAwaitingBackendHistory();
+  // Welcome only for true empty New chat — hide as soon as the user types,
+  // sends, or a run starts so brand never stacks over draft/messages.
+  const newChatSpotlight = useProjectsStore((s) => s.newChatSpotlight);
+  const showWelcome =
+    newChatSpotlight &&
+    messageCount === 0 &&
+    composerEmpty &&
+    !isRunning &&
+    !awaitingBackendHistory;
 
   return (
     <ThreadComponentsContext.Provider value={components}>
       <div className="relative flex h-full w-full min-w-0 overflow-hidden bg-[#121214]">
         <div className="relative min-w-0 flex-1">
-          <ThreadRoot isEmpty={isEmpty} autoFocus={autoFocus} />
+          <ThreadRoot
+            isEmpty={showWelcome}
+            showWelcome={showWelcome}
+            awaitingHistory={awaitingBackendHistory}
+            autoFocus={autoFocus}
+          />
         </div>
         <ContextRail />
       </div>
@@ -235,17 +250,101 @@ export const Thread: FC<ThreadProps> = ({
   );
 };
 
-const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({
-  isEmpty,
-  autoFocus,
-}) => {
+const SessionOpenErrorBanner: FC = () => {
+  const aui = useAui();
+  const openError = useChatSessionsStore((s) => s.openError);
+  const activeSessionId = useChatSessionsStore((s) => s.activeSessionId);
+  const sessions = useChatSessionsStore((s) => s.sessions);
+  const clearOpenError = useChatSessionsStore((s) => s.clearOpenError);
+  const clearMessagesHydrated = useChatSessionsStore(
+    (s) => s.clearMessagesHydrated,
+  );
+  const [reloading, setReloading] = useState(false);
+
+  if (!openError) return null;
+  if (activeSessionId && openError.sessionId !== activeSessionId) return null;
+
+  const reload = async () => {
+    if (reloading) return;
+    const sessionId = openError.sessionId;
+    setReloading(true);
+    clearOpenError(sessionId);
+    clearMessagesHydrated(sessionId);
+    try {
+      const cached = sessions.find((session) => session.id === sessionId);
+      const session = cached ?? (await getChatSession(sessionId));
+      await openBackendChatSession(aui, session);
+    } catch {
+      // openBackendChatSession reports openError itself
+    } finally {
+      setReloading(false);
+    }
+  };
+
+  return (
+    <div
+      role="alert"
+      data-slot="aui_session-open-error"
+      className="mb-4 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2.5 text-sm text-red-100"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 space-y-1">
+          <p className="font-medium text-red-50">
+            Không tải được tin nhắn
+            <span className="ms-2 font-mono text-xs text-red-200/80">
+              [{openError.code}]
+            </span>
+          </p>
+          <p className="break-words font-mono text-xs leading-relaxed text-red-100/90">
+            {openError.message}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            className="rounded-md px-2 py-1 text-xs text-red-100/80 hover:bg-red-500/20 hover:text-white disabled:opacity-50"
+            disabled={reloading}
+            onClick={() => {
+              void reload();
+            }}
+          >
+            {reloading ? "Đang tải…" : "Tải lại"}
+          </button>
+          <button
+            type="button"
+            className="rounded-md px-2 py-1 text-xs text-red-100/80 hover:bg-red-500/20 hover:text-white"
+            disabled={reloading}
+            onClick={() => clearOpenError(openError.sessionId)}
+          >
+            Đóng
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const ThreadRoot: FC<{
+  isEmpty: boolean;
+  showWelcome: boolean;
+  awaitingHistory: boolean;
+  autoFocus: boolean;
+}> = ({ isEmpty, showWelcome, awaitingHistory, autoFocus }) => {
   const { Welcome = ThreadWelcome } = useContext(ThreadComponentsContext);
+  const auiHistoryLoading = useAuiState(isHistoryLoadingView);
   const isBrowsingProjects = useProjectsStore((s) => s.isBrowsing);
   const isCreatingProject = useProjectsStore((s) => s.isCreating);
   const isLibrary = useProjectsStore((s) => s.isLibrary);
-  const isApi = useProjectsStore((s) => s.isApi);
+  const isImageGen = useProjectsStore((s) => s.isImageGen);
+  const isSlides = useProjectsStore((s) => s.isSlides);
+  const isBuild = useProjectsStore((s) => s.isBuild);
+  // Imagine / Slides / Build website share the same standalone hero+gallery shell.
+  const showModeSurface = isImageGen || isSlides || isBuild;
   const showSidePane =
-    isBrowsingProjects || isCreatingProject || isLibrary || isApi;
+    isBrowsingProjects ||
+    isCreatingProject ||
+    isLibrary ||
+    showModeSurface;
 
   return (
     <ThreadPrimitive.Root
@@ -265,19 +364,33 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({
         />
       </div>
       <ThreadTopActions />
+      <SelectionAskMenu />
       <ThreadPrimitive.Viewport
         turnAnchor="top"
+        autoScroll={false}
         data-slot="aui_thread-viewport"
-        className="aui-thread-viewport relative flex flex-1 flex-col overflow-x-auto overflow-y-auto scroll-smooth"
+        // No scroll-smooth: CSS smooth + growing stream = scroll thrash (Grok #4).
+        className="aui-thread-viewport relative flex flex-1 flex-col overflow-x-auto overflow-y-auto [scrollbar-gutter:stable]"
       >
         {showSidePane ? (
-          <div className="flex w-full flex-1 flex-col items-stretch justify-start px-6 pt-6 md:px-10">
+          <div
+            className={cn(
+              "flex w-full flex-1 flex-col items-stretch",
+              showModeSurface
+                ? "justify-start"
+                : "justify-start px-6 pt-6 md:px-10",
+            )}
+          >
             {isCreatingProject ? (
               <CreateProjectScreen />
             ) : isLibrary ? (
               <LibraryPage />
-            ) : isApi ? (
-              <ApiPage />
+            ) : isImageGen ? (
+              <ImageGenPage />
+            ) : isSlides ? (
+              <SlidesPage />
+            ) : isBuild ? (
+              <BuildPage />
             ) : (
               <ProjectsBrowse />
             )}
@@ -290,12 +403,13 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({
               isEmpty ? "justify-center pt-4" : "pt-12",
             )}
           >
-            <AuiIf condition={isNewChatView}>
-              <Welcome />
-            </AuiIf>
-            <AuiIf condition={isHistoryLoadingView}>
-              <ThreadHistorySkeleton />
-            </AuiIf>
+            {showWelcome ? <Welcome /> : null}
+            <SessionOpenErrorBanner />
+            {(auiHistoryLoading || awaitingHistory) ? (
+              <span className="sr-only" role="status">
+                Loading conversation
+              </span>
+            ) : null}
 
             <ThreadLoadEarlier />
 
@@ -316,12 +430,11 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({
             >
               <ThreadScrollToBottom />
               <ThreadFollowupSuggestions />
-              <Composer autoFocus={autoFocus} />
-              {/* Keep suggestions mounted (invisible) while typing so
-                  justify-center welcome layout does not jump down. */}
-              <AuiIf condition={isNewChatView}>
-                <ComposerEmptySuggestions />
-              </AuiIf>
+              <Composer
+                autoFocus={autoFocus}
+                showProjectPicker={showWelcome}
+              />
+              {showWelcome ? <ComposerEmptySuggestions /> : null}
             </ThreadPrimitive.ViewportFooter>
           </div>
         )}
@@ -504,17 +617,28 @@ const ThreadScrollToBottom: FC = () => {
   );
 };
 
-const ThreadWelcome: FC = () => {
+const ModeWelcome: FC<{
+  title: string;
+  prompts?: readonly string[];
+}> = ({ title, prompts }) => {
   return (
     <div className="aui-thread-welcome-root mb-2 flex w-full flex-col items-center">
       <div className="mb-8 flex flex-col items-center px-2 text-center">
-        <p className="aui-thread-welcome-message-inner fade-in slide-in-from-bottom-1 animate-in fill-mode-both text-3xl font-semibold tracking-tight text-zinc-100 duration-200">
-          Another Intelligence
+        <p className="aui-thread-welcome-message-inner fade-in slide-in-from-bottom-1 animate-in fill-mode-both h-9 text-3xl font-semibold leading-9 tracking-tight text-zinc-100 duration-200">
+          {title}
         </p>
-        <WelcomeTagline />
+        {prompts ? (
+          <WelcomeTagline prompts={prompts} fallback={prompts[0]} />
+        ) : (
+          <WelcomeTagline />
+        )}
       </div>
     </div>
   );
+};
+
+const ThreadWelcome: FC = () => {
+  return <ModeWelcome title="Another Intelligence" />;
 };
 
 const ThreadSuggestions: FC = () => {
@@ -544,6 +668,7 @@ const ComposerEmptySuggestions: FC = () => {
   );
 };
 
+
 const ThreadSuggestionItem: FC = () => {
   return (
     <div className="aui-thread-welcome-suggestion-display fade-in slide-in-from-bottom-2 animate-in fill-mode-both duration-200">
@@ -560,15 +685,21 @@ const ThreadSuggestionItem: FC = () => {
   );
 };
 
-const Composer: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
-  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+const Composer: FC<{
+  autoFocus: boolean;
+  /** Project pills + Add under the bar — only for true New chat, not history load. */
+  showProjectPicker?: boolean;
+}> = ({ autoFocus, showProjectPicker = true }) => {
+  const inputRef = useRef<HTMLDivElement | null>(null);
   const mainThreadId = useAuiState((s) => s.threads.mainThreadId);
 
   // Focus the input whenever the chat UI is shown / session changes.
   useLayoutEffect(() => {
     if (!autoFocus) return;
     const frame = window.requestAnimationFrame(() => {
-      inputRef.current?.focus({ preventScroll: true });
+      inputRef.current
+        ?.querySelector<HTMLElement>(".aui-lexical-input")
+        ?.focus({ preventScroll: true });
     });
     return () => window.cancelAnimationFrame(frame);
   }, [autoFocus, mainThreadId]);
@@ -579,23 +710,22 @@ const Composer: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
         render={
           <div
             data-slot="aui_composer-shell"
-            className="flex w-full cursor-text flex-col gap-2 rounded-(--composer-radius) border border-white/10 bg-(--composer-bg) p-(--composer-padding) shadow-[0_0_0_1px_rgba(255,255,255,0.02)] transition-[border-color,box-shadow] focus-within:border-white/20 focus-within:shadow-[0_8px_40px_rgba(0,0,0,0.45)] data-[dragging=true]:border-dashed data-[dragging=true]:border-white/30 data-[dragging=true]:bg-[#171717]"
+            className="flex w-full cursor-text flex-col gap-2 rounded-(--composer-radius) border border-white/10 bg-(--composer-bg) p-(--composer-padding) shadow-[0_0_0_1px_rgba(255,255,255,0.02)] focus-within:border-white/15 data-[dragging=true]:border-dashed data-[dragging=true]:border-white/30 data-[dragging=true]:bg-[#171717]"
           />
         }
       >
         <ComposerAttachments />
-        <ComposerPrimitive.Input
-          ref={inputRef}
-          placeholder="Ask anything"
-          className="aui-composer-input max-h-48 min-h-11 w-full resize-none bg-transparent px-3 py-2 text-base leading-6 text-zinc-100 caret-white outline-none placeholder:text-zinc-500"
-          rows={1}
-          autoFocus={autoFocus}
-          enterKeyHint="send"
-          aria-label="Message input"
-        />
+        <div ref={inputRef}>
+          <InlineChipComposerInput
+            placeholder="Ask anything"
+            autoFocus={autoFocus}
+            aria-label="Message input"
+            className="aui-composer-input relative max-h-48 min-h-11 w-full px-3 py-2 text-base leading-6 text-zinc-100 caret-white"
+          />
+        </div>
         <ComposerAction />
       </ComposerPrimitive.AttachmentDropzone>
-      <ComposerProjectPicker />
+      {showProjectPicker ? <ComposerProjectPicker /> : null}
     </ComposerPrimitive.Root>
   );
 };
@@ -608,11 +738,10 @@ const ComposerAction: FC = () => {
       s.composer.submission !== undefined &&
       !(s.thread.isRunning && s.thread.capabilities.cancel),
   );
-
   return (
     <div className="aui-composer-action-wrapper relative flex items-center justify-between">
       <div className="aui-composer-action-start flex min-w-0 items-center gap-1.5">
-        <ComposerAddAttachment />
+        <ComposerModePicker />
         <ComposerActiveProject />
         {ComposerExtra ? <ComposerExtra /> : null}
       </div>
@@ -625,6 +754,7 @@ const ComposerAction: FC = () => {
             <ComposerPrimitive.StopDictation render={<TooltipIconButton tooltip="Stop dictation" side="bottom" type="button" variant="ghost" size="icon" className="aui-composer-stop-dictation text-destructive size-7 rounded-full" aria-label="Stop voice input" />}><SquareIcon className="aui-composer-stop-dictation-icon size-3.5 animate-pulse fill-current" /></ComposerPrimitive.StopDictation>
           </AuiIf>
         </AuiIf>
+        <ComposerModelPicker />
         <AuiIf
           condition={(s) =>
             (!s.composer.canCancel ||
@@ -633,7 +763,12 @@ const ComposerAction: FC = () => {
             !shouldShowComposerResume(s)
           }
         >
-          <ComposerPrimitive.Send render={<TooltipIconButton tooltip="Send message" side="bottom" type="button" variant="default" size="icon" className="aui-composer-send size-7 rounded-full" aria-label="Send message" />}><ArrowUpIcon className="aui-composer-send-icon size-4" /></ComposerPrimitive.Send>
+          <span
+            className="contents"
+            onPointerDownCapture={() => flushInlineComposerDraft()}
+          >
+            <ComposerPrimitive.Send render={<TooltipIconButton tooltip="Send message" side="bottom" type="button" variant="default" size="icon" className="aui-composer-send size-7 rounded-full" aria-label="Send message" />}><ArrowUpIcon className="aui-composer-send-icon size-4" /></ComposerPrimitive.Send>
+          </span>
         </AuiIf>
         <AuiIf condition={shouldShowComposerResume}>
           <ComposerPrimitive.Resume render={<TooltipIconButton tooltip="Resume generating" side="bottom" type="button" variant="default" size="icon" className="aui-composer-resume size-7 rounded-full" aria-label="Resume generating" />}><PlayIcon className="aui-composer-resume-icon size-4" /></ComposerPrimitive.Resume>
@@ -666,10 +801,18 @@ const AssistantMessage: FC = () => {
   const {
     ToolFallback: ToolFallbackComponent = ToolFallback,
     ToolGroup,
-    ReasoningGroup,
     TaskGroup: TaskGroupComponent,
   } = useContext(ThreadComponentsContext);
   const groupBy = TaskGroupComponent ? taskAwareGroupBy : messageGroupBy;
+  // content-visibility on a growing stream forces intrinsic-size thrash → stutter.
+  const isRunning = useAuiState(
+    (s) => s.message.status?.type === "running",
+  );
+  const mainThreadId = useAuiState((s) => s.threads.mainThreadId);
+  // Keyed by thread id so new chats update before backend session map exists.
+  const runStatus = useAgentRunStatusStore((s) =>
+    mainThreadId ? s.byThreadId[mainThreadId] : undefined,
+  );
 
   const ACTION_BAR_PT = "pt-1.5";
   // Keep the action bar inside the contained root's paint box, then cancel its reserved space in flow.
@@ -679,11 +822,15 @@ const AssistantMessage: FC = () => {
     <MessagePrimitive.Root
       data-slot="aui_assistant-message-root"
       data-role="assistant"
-      className="fade-in slide-in-from-bottom-1 animate-in relative -mb-7.5 pb-7.5 duration-150 [contain-intrinsic-size:auto_200px] [content-visibility:auto]"
+      className={cn(
+        "fade-in slide-in-from-bottom-1 animate-in relative -mb-7.5 pb-7.5 duration-150",
+        !isRunning &&
+          "[contain-intrinsic-size:auto_200px] [content-visibility:auto]",
+      )}
     >
       <div
         data-slot="aui_assistant-message-content"
-        className="text-foreground px-2 leading-relaxed wrap-break-word"
+        className="text-foreground px-2 font-sans text-[15px] leading-[1.65] wrap-break-word text-zinc-100"
       >
         <MessagePrimitive.GroupedParts groupBy={groupBy}>
           {({ part, children }) => {
@@ -701,29 +848,12 @@ const AssistantMessage: FC = () => {
                 return (
                   <DefaultToolGroup group={part}>{children}</DefaultToolGroup>
                 );
-              case "group-reasoning": {
-                if (ReasoningGroup) {
-                  return (
-                    <ReasoningGroup group={part}>{children}</ReasoningGroup>
-                  );
-                }
-                const running = part.status.type === "running";
-                return (
-                  <ReasoningRoot streaming={running}>
-                    <ReasoningTrigger
-                      active={running}
-                      duration={reasoningDuration(part.timing)}
-                    />
-                    <ReasoningContent aria-busy={running}>
-                      <ReasoningText>{children}</ReasoningText>
-                    </ReasoningContent>
-                  </ReasoningRoot>
-                );
-              }
+              case "group-reasoning":
+              case "reasoning":
+                // Agent steps render as ● + status on the indicator — not a box.
+                return null;
               case "text":
                 return <MarkdownText />;
-              case "reasoning":
-                return <Reasoning {...part} />;
               case "tool-call":
                 return part.toolUI ?? <ToolFallbackComponent {...part} />;
               case "data":
@@ -740,16 +870,58 @@ const AssistantMessage: FC = () => {
                     <Image {...part} />
                   </div>
                 );
-              case "indicator":
+              case "indicator": {
+                // While the run is live but session/status isn't mapped yet (new chat),
+                // show Thinking. Once a real label exists (Responding, …), never invent
+                // Thinking — that was the pre-answer flash.
+                const label =
+                  runStatus ?? (isRunning ? "Thinking" : null);
+                if (!label) return null;
+                const isTerminal = label === "Done";
+                const toolMatch = /^Using · (.+)$/.exec(label);
+                const stepTitle = toolMatch ? "Using" : label;
+                const toolName = toolMatch?.[1] ?? null;
                 return (
-                  <span
+                  <div
                     data-slot="aui_assistant-message-indicator"
-                    className="animate-pulse font-sans"
-                    aria-label="Assistant is working"
+                    className="mb-1.5 flex min-h-8 w-full items-center gap-2.5 font-sans text-[15px] font-medium leading-snug tracking-tight text-zinc-300"
+                    aria-label={label}
+                    role="status"
                   >
-                    {"●"}
-                  </span>
+                    {!isTerminal ? (
+                      <span
+                        className="inline-flex items-center gap-1.5"
+                        aria-hidden
+                      >
+                        <span className="size-1.5 animate-pulse rounded-full bg-zinc-400" />
+                        <span className="size-1.5 animate-pulse rounded-full bg-zinc-400 [animation-delay:150ms]" />
+                        <span className="size-1.5 animate-pulse rounded-full bg-zinc-400 [animation-delay:300ms]" />
+                      </span>
+                    ) : (
+                      <span
+                        className="size-1.5 shrink-0 rounded-full bg-zinc-600"
+                        aria-hidden
+                      />
+                    )}
+                    <span
+                      key={label}
+                      className={cn(
+                        "min-w-0 fade-in slide-in-from-left-1 animate-in fill-mode-both duration-200",
+                        isTerminal ? "text-zinc-500" : "text-zinc-300",
+                        !isTerminal && "shimmer motion-reduce:animate-none",
+                      )}
+                    >
+                      {isTerminal ? "Done" : stepTitle}
+                      {toolName ? (
+                        <span className="text-zinc-200">
+                          {" · "}
+                          {toolName}
+                        </span>
+                      ) : null}
+                    </span>
+                  </div>
                 );
+              }
               default:
                 return null;
             }
@@ -760,7 +932,10 @@ const AssistantMessage: FC = () => {
 
       <div
         data-slot="aui_assistant-message-footer"
-        className={cn("ms-2 flex items-center", ACTION_BAR_HEIGHT)}
+        className={cn(
+          "flex w-full min-w-0 items-center gap-2 px-2",
+          ACTION_BAR_HEIGHT,
+        )}
       >
         <BranchPicker />
         <AssistantActionBar />
@@ -770,6 +945,18 @@ const AssistantMessage: FC = () => {
 };
 
 const AssistantActionBar: FC = () => {
+  const openFork = useSubsessionsStore((s) => s.openFork);
+  const setPanel = useContextRailStore((s) => s.setPanel);
+  const mainThreadId = useAuiState((s) => s.threads.mainThreadId);
+  const messageIndex = useAuiState((s) => s.message.index);
+
+  const openNewSubsession = () => {
+    if (!mainThreadId) return;
+    // Include this assistant message in the fork cutoff.
+    openFork(mainThreadId, messageIndex + 1, { forceNew: true });
+    setPanel("subsession-chat");
+  };
+
   return (
     <ActionBarPrimitive.Root
       hideWhenRunning
@@ -786,18 +973,13 @@ const AssistantActionBar: FC = () => {
         <ActionBarPrimitive.FeedbackNegative render={<TooltipIconButton tooltip="Not helpful" className="data-[submitted=true]:bg-accent data-[submitted=true]:text-accent-foreground" />}><ThumbsDownIcon /></ActionBarPrimitive.FeedbackNegative>
       </AuiIf>
       <ActionBarPrimitive.Reload render={<TooltipIconButton tooltip="Refresh" />}><RefreshCwIcon /></ActionBarPrimitive.Reload>
-      <ActionBarMorePrimitive.Root>
-        <ActionBarMorePrimitive.Trigger render={<TooltipIconButton tooltip="More" className="data-[state=open]:bg-accent" />}><MoreHorizontalIcon /></ActionBarMorePrimitive.Trigger>
-        <ActionBarMorePrimitive.Content
-          side="bottom"
-          align="start"
-          sideOffset={6}
-          className="aui-action-bar-more-content bg-popover text-popover-foreground data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=open]:animate-in data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=closed]:animate-out data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 min-w-[8rem] overflow-hidden rounded-xl border p-1.5"
-        >
-          <ActionBarPrimitive.ExportMarkdown render={<ActionBarMorePrimitive.Item className="aui-action-bar-more-item hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm outline-none select-none" />}><DownloadIcon className="size-4" />Export as Markdown
-                              </ActionBarPrimitive.ExportMarkdown>
-        </ActionBarMorePrimitive.Content>
-      </ActionBarMorePrimitive.Root>
+      <TooltipIconButton
+        tooltip="New subsession"
+        type="button"
+        onClick={openNewSubsession}
+      >
+        <MessageSquareIcon />
+      </TooltipIconButton>
     </ActionBarPrimitive.Root>
   );
 };
@@ -833,18 +1015,23 @@ const UserMessage: FC = () => {
   return (
     <MessagePrimitive.Root
       data-slot="aui_user-message-root"
-      className="fade-in slide-in-from-bottom-1 animate-in grid auto-rows-auto grid-cols-[minmax(72px,1fr)_auto] content-start gap-y-2 px-2 duration-150 [contain-intrinsic-size:auto_200px] [content-visibility:auto] [&:where(>*)]:col-start-2"
+      className="group/user-msg fade-in slide-in-from-bottom-1 animate-in grid auto-rows-auto grid-cols-[minmax(72px,1fr)_auto] content-start gap-y-2 px-2 duration-150 [&:where(>*)]:col-start-2"
       data-role="user"
     >
       <UserMessageAttachments />
 
       <div className="aui-user-message-content-wrapper relative col-start-2 min-w-0">
-        <div className="aui-user-message-content peer bg-muted text-foreground rounded-(--composer-radius) px-4 py-2 wrap-break-word empty:hidden">
+        <div className="aui-user-message-content peer bg-muted text-foreground rounded-(--composer-radius) px-4 py-2 wrap-break-word whitespace-pre-wrap empty:hidden">
           <MessagePrimitive.Parts
-            components={{ File: UserFilePart, Image: UserImagePart }}
+            components={{
+              Text: SelectionAwareText,
+              File: UserFilePart,
+              Image: UserImagePart,
+            }}
           />
         </div>
-        <div className="aui-user-action-bar-wrapper absolute start-0 top-1/2 -translate-x-full -translate-y-1/2 pe-2 peer-empty:hidden rtl:translate-x-full">
+        {/* Hover bridge: padding covers the gap so Edit stays clickable. */}
+        <div className="aui-user-action-bar-wrapper absolute inset-y-0 end-full flex items-center pe-1 pl-2 opacity-0 transition-opacity peer-empty:hidden group-hover/user-msg:opacity-100 group-focus-within/user-msg:opacity-100">
           <UserActionBar />
         </div>
       </div>
@@ -861,30 +1048,135 @@ const UserActionBar: FC = () => {
   return (
     <ActionBarPrimitive.Root
       hideWhenRunning
-      autohide="not-last"
       className="aui-user-action-bar-root flex flex-col items-end"
     >
-      <ActionBarPrimitive.Edit render={<TooltipIconButton tooltip="Edit" className="aui-user-action-edit" />}><PencilIcon /></ActionBarPrimitive.Edit>
+      <ActionBarPrimitive.Edit
+        render={
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="Edit"
+            title="Edit"
+            className="aui-user-action-edit size-7 rounded-lg text-zinc-400 hover:bg-white/10 hover:text-zinc-100"
+          />
+        }
+      >
+        <PencilIcon className="size-3.5" aria-hidden />
+      </ActionBarPrimitive.Edit>
     </ActionBarPrimitive.Root>
   );
 };
 
 const EditComposer: FC = () => {
+  const aui = useAui();
+  const openFork = useSubsessionsStore((s) => s.openFork);
+  const appendMessage = useSubsessionsStore((s) => s.appendMessage);
+  const queueReply = useSubsessionsStore((s) => s.queueReply);
+  const setPanel = useContextRailStore((s) => s.setPanel);
+  const messageIndex = useAuiState((s) => s.message.index);
+  const mainThreadId = useAuiState((s) => s.threads.mainThreadId);
+  const isLatestUserMessage = useAuiState((s) => {
+    const { messages } = s.thread;
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i]?.role === "user") {
+        return messages[i]!.id === s.message.id;
+      }
+    }
+    return s.message.isLast;
+  });
+  const backendMessageId = useAuiState((s) => {
+    const custom = s.message.metadata?.custom as
+      | Record<string, unknown>
+      | undefined;
+    return typeof custom?.backendMessageId === "string"
+      ? custom.backendMessageId
+      : undefined;
+  });
+
+  const submitEdit = () => {
+    flushInlineComposerDraft();
+    const text = aui.composer.getState().text.trim();
+    if (!text) return;
+
+    const sessionId = mainThreadId
+      ? getBackendSessionId(mainThreadId)
+      : null;
+    const messageId =
+      backendMessageId ??
+      (sessionId ? getLastSessionUserMessageId(sessionId) : undefined);
+    if (sessionId && messageId) {
+      setPendingMessageEdit({ sessionId, messageId });
+    }
+
+    // Always send through assistant-ui so the bubble text updates in-thread.
+    aui.composer.send();
+  };
+
+  const startInSubsession = () => {
+    flushInlineComposerDraft();
+    const text = aui.composer.getState().text.trim();
+    if (!text || !mainThreadId) return;
+
+    aui.composer.cancel();
+    const subsessionId = openFork(mainThreadId, messageIndex, {
+      forceNew: true,
+    });
+    appendMessage(subsessionId, {
+      id: crypto.randomUUID(),
+      role: "user",
+      content: text,
+    });
+    queueReply(subsessionId);
+    setPanel("subsession-chat");
+  };
+
+  const primarySubmit = isLatestUserMessage ? submitEdit : startInSubsession;
+
   return (
     <MessagePrimitive.Root
       data-slot="aui_edit-composer-wrapper"
-      className="flex flex-col px-2 [contain-intrinsic-size:auto_200px] [content-visibility:auto]"
+      className="flex flex-col px-2"
     >
-      <ComposerPrimitive.Root className="aui-edit-composer-root border-foreground/10 focus-within:border-foreground/25 ms-auto flex w-full max-w-[85%] cursor-text flex-col rounded-(--composer-radius) border bg-(--composer-bg) transition-[border-color]">
-        <ComposerPrimitive.Input
-          className="aui-edit-composer-input text-foreground min-h-14 w-full resize-none bg-transparent px-4 pt-3 pb-1 text-base outline-none"
+      <ComposerPrimitive.Root
+        className="aui-edit-composer-root border-foreground/10 focus-within:border-foreground/25 ms-auto flex w-full max-w-[85%] cursor-text flex-col rounded-(--composer-radius) border bg-(--composer-bg)"
+        onSubmit={(event) => {
+          event.preventDefault();
+          primarySubmit();
+        }}
+      >
+        <InlineChipComposerInput
           autoFocus
+          placeholder="Edit message"
+          aria-label="Edit message"
+          onEnter={primarySubmit}
+          className="aui-edit-composer-input text-foreground relative min-h-14 w-full px-4 pt-3 pb-1 text-base leading-6 text-zinc-100 caret-white"
         />
-        <div className="aui-edit-composer-footer mx-2.5 mb-2.5 flex items-center gap-1.5 self-end">
-          <ComposerPrimitive.Cancel render={<Button variant="ghost" size="sm" className="h-8 px-3" />}>Cancel
-                              </ComposerPrimitive.Cancel>
-          <ComposerPrimitive.Send render={<Button size="sm" className="h-8 px-3" />}>Update
-                              </ComposerPrimitive.Send>
+        <div className="aui-edit-composer-footer mx-2.5 mb-2.5 flex flex-wrap items-center justify-end gap-1.5">
+          <ComposerPrimitive.Cancel
+            render={<Button variant="ghost" size="sm" className="h-8 px-3" />}
+          >
+            Cancel
+          </ComposerPrimitive.Cancel>
+          {isLatestUserMessage ? (
+            <Button
+              size="sm"
+              className="h-8 px-3"
+              type="button"
+              onClick={submitEdit}
+            >
+              Update
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              className="h-8 px-3"
+              type="button"
+              onClick={startInSubsession}
+            >
+              Update in subsession
+            </Button>
+          )}
         </div>
       </ComposerPrimitive.Root>
     </MessagePrimitive.Root>
@@ -899,16 +1191,29 @@ const BranchPicker: FC<BranchPickerPrimitive.Root.Props> = ({
     <BranchPickerPrimitive.Root
       hideWhenSingleBranch
       className={cn(
-        "aui-branch-picker-root text-muted-foreground -ms-2 me-2 inline-flex items-center text-xs",
+        "aui-branch-picker-root text-muted-foreground me-1 inline-flex items-center gap-0.5 text-xs",
         className,
       )}
       {...rest}
     >
-      <BranchPickerPrimitive.Previous render={<TooltipIconButton tooltip="Previous" />}><ChevronLeftIcon /></BranchPickerPrimitive.Previous>
-      <span className="aui-branch-picker-state font-medium">
+      <BranchPickerPrimitive.Previous
+        render={
+          <TooltipIconButton tooltip="Previous answer" />
+        }
+      >
+        <ChevronLeftIcon />
+      </BranchPickerPrimitive.Previous>
+      <span
+        className="aui-branch-picker-state min-w-8 text-center font-medium tabular-nums"
+        title="Answer versions"
+      >
         <BranchPickerPrimitive.Number /> / <BranchPickerPrimitive.Count />
       </span>
-      <BranchPickerPrimitive.Next render={<TooltipIconButton tooltip="Next" />}><ChevronRightIcon /></BranchPickerPrimitive.Next>
+      <BranchPickerPrimitive.Next
+        render={<TooltipIconButton tooltip="Next answer" />}
+      >
+        <ChevronRightIcon />
+      </BranchPickerPrimitive.Next>
     </BranchPickerPrimitive.Root>
   );
 };

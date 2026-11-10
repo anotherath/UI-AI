@@ -2,6 +2,11 @@
 @import "tw-animate-css";
 @import "tw-shimmer";
 
+/* Streamdown (Vercel) — caret / controls / word animation utilities */
+@source "../node_modules/streamdown/dist/*.js";
+@source "../node_modules/@streamdown/code/dist/*.js";
+@source "../node_modules/@streamdown/cjk/dist/*.js";
+
 @custom-variant data-open (&:where([data-state="open"], [data-open]:not([data-open="false"])));
 @custom-variant data-closed (&:where([data-state="closed"], [data-closed]:not([data-closed="false"])));
 @custom-variant dark (&:is(.dark *));
@@ -120,17 +125,109 @@
     @apply bg-background text-foreground;
     font-optical-sizing: auto;
   }
+
+  /* Clickable controls should show a pointer — browsers default buttons to arrow. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="menuitem"]:not([aria-disabled="true"]),
+  [role="tab"]:not([aria-disabled="true"]),
+  [role="option"]:not([aria-disabled="true"]),
+  [role="switch"]:not([aria-disabled="true"]),
+  [role="checkbox"]:not([aria-disabled="true"]),
+  [role="radio"]:not([aria-disabled="true"]),
+  summary,
+  a[href],
+  label[for],
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled),
+  input[type="file"]:not(:disabled),
+  select:not(:disabled) {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [aria-disabled="true"],
+  input:disabled,
+  select:disabled {
+    cursor: not-allowed;
+  }
 }
 
-/* Ultra-thin, minimal scrollbars */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: rgb(255 255 255 / 14%) transparent;
+/* Lexical composer — inline Cursor-style selection chips */
+.aui-lexical-editor {
+  position: relative;
 }
 
+.aui-lexical-input {
+  outline: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.aui-lexical-input:focus {
+  outline: none;
+}
+
+.aui-lexical-input > p {
+  margin: 0;
+  line-height: 1.5rem;
+}
+
+/*
+ * Keep Lexical's decorator host as true inline shrink-wrap.
+ * inline-flex on the host makes it eat the rest of the line (big gap).
+ * line-height: 0 kills the host strut so the chip can center on the text line.
+ */
+.aui-lexical-input > p > span[contenteditable="false"] {
+  display: inline !important;
+  width: auto !important;
+  max-width: max-content !important;
+  line-height: 0;
+  vertical-align: middle;
+}
+
+.aui-lexical-placeholder {
+  pointer-events: none;
+  position: absolute;
+  top: 0.5rem;
+  left: 0.75rem;
+  color: rgb(113 113 122); /* zinc-500 */
+}
+
+.aui-selection-chip {
+  user-select: none;
+  vertical-align: middle;
+  /* Slight optical nudge — between previous too-low / too-high */
+  position: relative;
+  top: -0.08em;
+}
+
+/*
+ * Custom Blink scrollbars only (no scrollbar-width / scrollbar-color).
+ * On Linux those standard props fall back to GTK native bars with ↑↓ buttons.
+ */
 *::-webkit-scrollbar {
-  width: 3px;
-  height: 3px;
+  width: 8px;
+  height: 8px;
+  background: transparent;
+}
+
+*::-webkit-scrollbar-button,
+*::-webkit-scrollbar-button:start:decrement,
+*::-webkit-scrollbar-button:end:increment,
+*::-webkit-scrollbar-button:vertical:start:increment,
+*::-webkit-scrollbar-button:vertical:end:decrement,
+*::-webkit-scrollbar-button:horizontal:start:increment,
+*::-webkit-scrollbar-button:horizontal:end:decrement,
+*::-webkit-scrollbar-button:vertical:decrement,
+*::-webkit-scrollbar-button:vertical:increment,
+*::-webkit-scrollbar-button:horizontal:decrement,
+*::-webkit-scrollbar-button:horizontal:increment {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+  border: none !important;
 }
 
 *::-webkit-scrollbar-track {
@@ -138,16 +235,72 @@
 }
 
 *::-webkit-scrollbar-thumb {
-  background-color: rgb(255 255 255 / 14%);
+  background-color: rgb(255 255 255 / 12%);
   border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background-color: rgb(255 255 255 / 26%);
+  background-color: rgb(255 255 255 / 22%);
 }
 
 *::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+/* Firefox: thin bar, no arrow buttons. */
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(255 255 255 / 12%) transparent;
+  }
+}
+
+/* Reserve gutter once so appearing/disappearing scrollbars never shift layout. */
+.aui-thread-viewport,
+[data-slot="aui_thread-viewport"] {
+  scrollbar-gutter: stable;
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/*
+ * CHATS list — same Blink pill as chat viewport; thumb invisible until hover.
+ * Never set scrollbar-width / scrollbar-color (Linux GTK ↑↓ arrows).
+ */
+.aui-chats-scroll::-webkit-scrollbar-thumb,
+[data-slot="aui_thread-list-scroll"]::-webkit-scrollbar-thumb {
+  background-color: transparent;
+}
+
+.aui-chats-scroll:hover::-webkit-scrollbar-thumb,
+.aui-chats-scroll:focus-within::-webkit-scrollbar-thumb,
+[data-slot="aui_thread-list-scroll"]:hover::-webkit-scrollbar-thumb,
+[data-slot="aui_thread-list-scroll"]:focus-within::-webkit-scrollbar-thumb {
+  background-color: rgb(255 255 255 / 12%);
+}
+
+.aui-chats-scroll:hover::-webkit-scrollbar-thumb:hover,
+.aui-chats-scroll:focus-within::-webkit-scrollbar-thumb:hover,
+[data-slot="aui_thread-list-scroll"]:hover::-webkit-scrollbar-thumb:hover,
+[data-slot="aui_thread-list-scroll"]:focus-within::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(255 255 255 / 22%);
+}
+
+/* Live assistant stream — Streamdown owns caret + word blurIn */
+.aui-md[data-status="running"] {
+  text-rendering: geometricPrecision;
+  overflow-wrap: anywhere;
 }
 
 /* Landing — OpenAI-like restraint, soft motion */

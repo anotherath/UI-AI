@@ -163,10 +163,10 @@ function SidebarProvider({
   const [isResizing, setIsResizingState] = React.useState(false)
   // Keep labels visible while width animates closed on toggle (avoids instant vanish).
   const [preserveChrome, setPreserveChrome] = React.useState(false)
+  // Always start from the SSR default so the first client paint matches HTML.
+  // Stored width is restored in an effect after mount (avoids hydration mismatch).
   const [widthPx, setWidthPxState] = React.useState(() =>
-    readStoredSidebarWidth(
-      defaultOpen ? SIDEBAR_WIDTH_DEFAULT_PX : SIDEBAR_WIDTH_ICON_PX
-    )
+    defaultOpen ? SIDEBAR_WIDTH_DEFAULT_PX : SIDEBAR_WIDTH_ICON_PX
   )
   const lastExpandedWidthRef = React.useRef(SIDEBAR_WIDTH_DEFAULT_PX)
   const chromeRevealTimerRef = React.useRef<number | null>(null)
@@ -179,7 +179,7 @@ function SidebarProvider({
     }
   }, [])
 
-  // SSR paints the default width; restore the last dragged size after mount.
+  // Restore the last dragged size after mount.
   React.useEffect(() => {
     const restored = readStoredSidebarWidth(
       defaultOpen ? SIDEBAR_WIDTH_DEFAULT_PX : SIDEBAR_WIDTH_ICON_PX
