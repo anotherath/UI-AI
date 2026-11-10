@@ -15,12 +15,14 @@ import {
   ArrowUpRightIcon,
   ChevronDownIcon,
   FolderIcon,
-  KeyRoundIcon,
+  GlobeIcon,
+  ImageIcon,
+  InfinityIcon,
   LibraryIcon,
   PanelLeftIcon,
-  PaperclipIcon,
   PenLineIcon,
   PlusIcon,
+  PresentationIcon,
   SearchIcon,
 } from "lucide-react";
 import Image from "next/image";
@@ -42,23 +44,59 @@ import { cn } from "@/lib/utils";
 const HERO_VIDEO_SRC = "/landing/hero-launch.mp4";
 const HERO_POSTER_SRC = "/landing/space/milky-way.jpg";
 
-export function LandingPage() {
+export function LandingPage({
+  embedded = false,
+  onEnterApp,
+}: {
+  /** Render inside the app shell (Build) — no marketing chrome / window Lenis. */
+  embedded?: boolean;
+  /** When embedded, CTA enters New chat instead of routing to /app. */
+  onEnterApp?: () => void;
+} = {}) {
   const router = useRouter();
   const heroVideoRef = useRef<HTMLVideoElement>(null);
   const [value, setValue] = useState("");
   const [progress, setProgress] = useState(0);
-  const [bootstrapped, setBootstrapped] = useState(false);
+  const [bootstrapped, setBootstrapped] = useState(embedded);
   const [loaderExiting, setLoaderExiting] = useState(false);
-  const [showLoader, setShowLoader] = useState(true);
+  const [showLoader, setShowLoader] = useState(!embedded);
   const [heroSrc, setHeroSrc] = useState<string | null>(null);
 
   const goApp = (event?: FormEvent) => {
     event?.preventDefault();
+    if (embedded) {
+      onEnterApp?.();
+      return;
+    }
     router.push("/app");
   };
 
   // Real % preload of hero rocket video so reveal starts with playback ready.
   useEffect(() => {
+    if (embedded) {
+      // In-app: skip marketing loader; still fetch the hero blob for playback.
+      const controller = new AbortController();
+      let objectUrl: string | null = null;
+      void (async () => {
+        try {
+          const blob = await fetchBlobWithProgress(
+            HERO_VIDEO_SRC,
+            () => {},
+            controller.signal,
+          );
+          if (controller.signal.aborted) return;
+          objectUrl = URL.createObjectURL(blob);
+          setHeroSrc(objectUrl);
+        } catch {
+          setHeroSrc(HERO_VIDEO_SRC);
+        }
+      })();
+      return () => {
+        controller.abort();
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+      };
+    }
+
     const controller = new AbortController();
     let objectUrl: string | null = null;
 
@@ -99,7 +137,7 @@ export function LandingPage() {
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, []);
+  }, [embedded]);
 
   useEffect(() => {
     const video = heroVideoRef.current;
@@ -165,9 +203,11 @@ export function LandingPage() {
     <div
       data-slot="landing-root"
       data-ready={bootstrapped ? "" : undefined}
+      data-embedded={embedded ? "" : undefined}
       className={cn(
-        "landing-root relative min-h-dvh overflow-x-clip bg-[#050505] text-[#f5f5f5]",
-        !bootstrapped && "h-dvh overflow-hidden",
+        "landing-root relative overflow-x-clip bg-[#050505] text-[#f5f5f5]",
+        embedded ? "min-h-full w-full" : "min-h-dvh",
+        !bootstrapped && !embedded && "h-dvh overflow-hidden",
       )}
       aria-busy={!bootstrapped}
     >
@@ -182,10 +222,15 @@ export function LandingPage() {
         )}
         aria-hidden={!bootstrapped}
       >
-        <LandingSmoothScroll />
-        <LandingCursorGlow />
-        <LandingBackToTop />
+        {embedded ? null : (
+          <>
+            <LandingSmoothScroll />
+            <LandingCursorGlow />
+            <LandingBackToTop />
+          </>
+        )}
 
+      {embedded ? null : (
       <header className="landing-nav absolute inset-x-0 top-0 z-30">
         <div className="mx-auto flex h-14 w-full max-w-[1200px] items-center justify-between px-5 sm:h-16 sm:px-8">
           <Link
@@ -207,11 +252,15 @@ export function LandingPage() {
           </Link>
         </div>
       </header>
+      )}
 
       <main className="relative z-10">
         <section
           data-landing-cue="hero"
-          className="relative isolate flex min-h-dvh w-full flex-col items-center justify-center overflow-hidden px-5 pb-20 pt-24 sm:px-8 sm:pb-24 sm:pt-28"
+          className={cn(
+            "relative isolate flex min-h-dvh w-full flex-col items-center justify-center overflow-hidden px-5 pb-20 sm:px-8 sm:pb-24",
+            embedded ? "pt-12 sm:pt-16" : "pt-24 sm:pt-28",
+          )}
         >
           <div
             aria-hidden
@@ -293,20 +342,29 @@ export function LandingPage() {
                 <div className="flex min-w-0 items-center gap-1.5">
                   <button
                     type="button"
-                    aria-label="Add attachment"
+                    aria-label="Add photos & files"
                     className="inline-flex size-7 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-100 active:scale-[0.96]"
                     onClick={goApp}
                   >
-                    <PaperclipIcon className="size-4" />
+                    <PlusIcon className="size-4" />
                   </button>
                 </div>
-                <button
-                  type="submit"
-                  aria-label="Send message"
-                  className="inline-flex size-7 items-center justify-center rounded-full bg-zinc-100 text-zinc-900 transition-colors hover:bg-white"
-                >
-                  <ArrowUpIcon className="size-4" />
-                </button>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <span className="mr-2 inline-flex items-center gap-2 text-xs font-medium text-zinc-400">
+                    <InfinityIcon className="size-3.5 shrink-0" />
+                    Auto Mode
+                  </span>
+                  <span className="mr-2 text-sm font-medium text-zinc-300">
+                    Flash
+                  </span>
+                  <button
+                    type="submit"
+                    aria-label="Send message"
+                    className="inline-flex size-7 items-center justify-center rounded-full bg-zinc-100 text-zinc-900 transition-colors hover:bg-white"
+                  >
+                    <ArrowUpIcon className="size-4" />
+                  </button>
+                </div>
               </div>
             </div>
           </form>
@@ -321,8 +379,8 @@ export function LandingPage() {
               The workspace, at a glance
             </h2>
             <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-[#8a8a8a] sm:text-[15px]">
-              Same quiet layout as the app - projects, library, and chats in one
-              place.
+              Same quiet layout as the app — chat, Imagine, Build website, and
+              Slides in one place.
             </p>
           </div>
           <div className="landing-preview w-full">
@@ -375,13 +433,24 @@ export function LandingPage() {
             Jump into the workspace and open a new chat, a project, or your
             library.
           </p>
-          <Link
-            href="/app"
-            className="mt-9 inline-flex h-12 items-center gap-2 rounded-full bg-white px-7 text-sm font-medium text-black shadow-[0_12px_40px_rgba(0,0,0,0.35)] transition-[transform,background-color] hover:bg-[#e8e8e8] hover:scale-[1.02] active:scale-[0.99]"
-          >
-            Try Another Intelligence
-            <ArrowUpRightIcon className="size-4" strokeWidth={2.25} />
-          </Link>
+          {embedded ? (
+            <button
+              type="button"
+              onClick={goApp}
+              className="mt-9 inline-flex h-12 items-center gap-2 rounded-full bg-white px-7 text-sm font-medium text-black shadow-[0_12px_40px_rgba(0,0,0,0.35)] transition-[transform,background-color] hover:bg-[#e8e8e8] hover:scale-[1.02] active:scale-[0.99]"
+            >
+              Open New chat
+              <ArrowUpRightIcon className="size-4" strokeWidth={2.25} />
+            </button>
+          ) : (
+            <Link
+              href="/app"
+              className="mt-9 inline-flex h-12 items-center gap-2 rounded-full bg-white px-7 text-sm font-medium text-black shadow-[0_12px_40px_rgba(0,0,0,0.35)] transition-[transform,background-color] hover:bg-[#e8e8e8] hover:scale-[1.02] active:scale-[0.99]"
+            >
+              Try Another Intelligence
+              <ArrowUpRightIcon className="size-4" strokeWidth={2.25} />
+            </Link>
+          )}
         </div>
 
         <footer className="landing-footer relative z-10 mx-auto flex w-full max-w-[1200px] items-center justify-between gap-6 pt-14 pb-[min(18vw,140px)] text-left sm:pt-16 sm:pb-[120px]">
@@ -779,16 +848,24 @@ function ProductPreview() {
                   <span className="truncate">New chat</span>
                 </div>
                 <div className={previewNavClass}>
+                  <ImageIcon className="size-4 shrink-0" />
+                  <span className="truncate">Imagine</span>
+                </div>
+                <div className={previewNavClass}>
+                  <GlobeIcon className="size-4 shrink-0" />
+                  <span className="truncate">Build website</span>
+                </div>
+                <div className={previewNavClass}>
+                  <PresentationIcon className="size-4 shrink-0" />
+                  <span className="truncate">Slides</span>
+                </div>
+                <div className={previewNavClass}>
                   <FolderIcon className="size-4 shrink-0" />
                   <span className="truncate">Projects</span>
                 </div>
                 <div className={previewNavClass}>
                   <LibraryIcon className="size-4 shrink-0" />
                   <span className="truncate">Library</span>
-                </div>
-                <div className={previewNavClass}>
-                  <KeyRoundIcon className="size-4 shrink-0" />
-                  <span className="truncate">API</span>
                 </div>
               </div>
 
@@ -813,17 +890,17 @@ function ProductPreview() {
             </div>
 
             <div className="mt-auto border-t border-white/5 p-2">
-              <div className="flex items-center gap-2 rounded-md p-2">
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-zinc-300">
+              <div className="flex items-center gap-2.5 rounded-xl px-2 py-1.5">
+                <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/8 text-xs font-medium text-zinc-200">
                   U
                 </div>
-                <div className="min-w-0 flex-1 leading-none">
-                  <p className="truncate text-sm font-semibold text-zinc-100">
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5 leading-tight">
+                  <span className="truncate text-sm font-medium text-zinc-100">
                     User
-                  </p>
-                  <p className="mt-0.5 truncate text-xs text-zinc-500">
+                  </span>
+                  <span className="truncate text-[11px] text-zinc-500">
                     user@example.com
-                  </p>
+                  </span>
                 </div>
               </div>
             </div>
@@ -921,19 +998,28 @@ function ProductPreview() {
                   </div>
                   <div className="relative flex items-center justify-between">
                     <span className="inline-flex size-7 items-center justify-center rounded-full text-zinc-500">
-                      <PaperclipIcon className="size-4" />
+                      <PlusIcon className="size-4" />
                     </span>
-                    <span
-                      ref={sendRef}
-                      className={cn(
-                        "inline-flex size-7 items-center justify-center rounded-full bg-zinc-100 text-zinc-900 transition-transform duration-150",
-                        ((cursor.clicking && phase === "to-send") ||
-                          pressTarget === "send") &&
-                          "scale-90",
-                      )}
-                    >
-                      <ArrowUpIcon className="size-4" />
-                    </span>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <span className="mr-2 inline-flex max-w-32 items-center gap-2 truncate text-xs font-medium text-zinc-400">
+                        <InfinityIcon className="size-3.5 shrink-0" />
+                        Auto Mode
+                      </span>
+                      <span className="mr-2 text-sm font-medium text-zinc-300">
+                        Flash
+                      </span>
+                      <span
+                        ref={sendRef}
+                        className={cn(
+                          "inline-flex size-7 items-center justify-center rounded-full bg-zinc-100 text-zinc-900 transition-transform duration-150",
+                          ((cursor.clicking && phase === "to-send") ||
+                            pressTarget === "send") &&
+                            "scale-90",
+                        )}
+                      >
+                        <ArrowUpIcon className="size-4" />
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
