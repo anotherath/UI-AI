@@ -22,7 +22,7 @@ const outfit = Outfit({
 });
 
 const siteDescription =
-  "A quieter workspace for thinking with AI - projects, shared knowledge, and chats that stay where they belong.";
+  "An AI assistant built for sharp thinking - with room to create, launch, and explore.";
 
 export const metadata: Metadata = {
   title: "Another Intelligence",

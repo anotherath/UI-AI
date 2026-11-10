@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
-/** Inner labels only — brackets are rendered as literal typography. */
+/** Inner labels only - brackets are rendered as literal typography. */
 const CUES = [
   { id: "hero", text: "SCROLL" },
   { id: "preview", text: "PSYCH" },
@@ -19,7 +19,7 @@ const OFFSET_X = 18;
 const OFFSET_Y = 22;
 
 /**
- * Bracket cue that trails the pointer — landing only.
+ * Bracket cue that trails the pointer - landing only.
  * Renders as literal [TEXT], not a bordered chip.
  */
 export function LandingCursorGlow() {

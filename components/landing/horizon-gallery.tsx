@@ -9,39 +9,39 @@ const SLIDES = [
     src: "/landing/space/milky-way.jpg",
     alt: "Milky Way across the night sky",
     label: "Universe",
-    caption: "Room enough for every thread of thought.",
+    caption: "Scale for ideas that need more sky.",
   },
   {
     src: "/landing/space/black-hole.jpg",
     alt: "Black hole accretion ring",
     label: "Singularity",
-    caption: "Shared knowledge, denser than noise.",
+    caption: "Focus so dense the noise falls in.",
   },
   {
     src: "/landing/space/rocket-blueprint.svg",
     alt: "Rocket blueprint schematic",
     label: "Blueprint",
-    caption: "Structure the system before you launch.",
+    caption: "Draw the system before ignition.",
     unoptimized: true,
   },
   {
     src: "/landing/space/neural-blueprint.svg",
     alt: "Neural network blueprint",
     label: "Neural",
-    caption: "Connections that keep context alive.",
+    caption: "Circuits of thought, mapped out.",
     unoptimized: true,
   },
   {
     src: "/landing/space/agent.jpg",
     alt: "Glowing circuit board schematic",
     label: "Agent",
-    caption: "Chats that stay where they belong.",
+    caption: "Reasoning you can follow mid-flight.",
   },
   {
     src: "/landing/space/rocket-plan.jpg",
     alt: "NASA launch vehicle schematic",
     label: "Launch",
-    caption: "From quiet plan to clear signal.",
+    caption: "From schematic to liftoff.",
   },
 ] as const;
 
@@ -224,7 +224,7 @@ export function HorizonGallery() {
         reduced ? "py-20 sm:py-28" : "h-[180vh]",
       )}
       data-landing-cue="horizon"
-      aria-label="A quieter orbit"
+      aria-label="Orbital gallery"
     >
       <div
         ref={stickyRef}
@@ -238,10 +238,10 @@ export function HorizonGallery() {
         <div className="mx-auto w-full max-w-[920px] shrink-0 px-5 text-center sm:px-8">
           <h2 className="font-[family-name:var(--font-landing)] text-[clamp(1.5rem,3.8vw,2.5rem)] leading-[1.12] font-medium tracking-[-0.035em] text-balance">
             <span className="text-white">
-              This isn&apos;t about rushing answers.
+              Not noise. Trajectory.
             </span>{" "}
             <span className="text-zinc-500">
-              It&apos;s about staying locked on the work.
+              Lock onto the question and stay on course.
             </span>
           </h2>
         </div>

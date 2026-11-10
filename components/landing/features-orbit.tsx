@@ -20,22 +20,22 @@ const FEATURES: {
   {
     icon: FolderIcon,
     index: "01",
-    title: "Projects that hold context",
-    body: "Keep research, briefs, and threads together - without losing the chat that started it.",
+    title: "Projects as mission pads",
+    body: "Research, briefs, and threads stay docked together - so the next question still has context.",
     image: "/landing/space/nebula-deep.jpg",
   },
   {
     icon: LibraryIcon,
     index: "02",
-    title: "Shared knowledge",
-    body: "Attach PDFs once. Every conversation in the project can draw from the same library.",
+    title: "A living archive",
+    body: "Attach sources once. Every conversation can draw from the same field of evidence.",
     image: "/landing/space/helix-nebula.jpg",
   },
   {
     icon: SparklesIcon,
     index: "03",
-    title: "A calmer canvas",
-    body: "Less chrome, more room to think. The interface stays out of the way until you need it.",
+    title: "A clear instrument panel",
+    body: "Less chrome, more signal. The interface stays dark and quiet until you need thrust.",
     image: "/landing/space/milky-way.jpg",
   },
 ];
@@ -454,7 +454,7 @@ export function FeaturesOrbit() {
   return (
     <section
       ref={sectionRef}
-      // overflow-hidden only on desktop — sticky needs it off on mobile.
+      // overflow-hidden only on desktop - sticky needs it off on mobile.
       className={cn(
         "landing-features relative bg-[#050505]",
         reduced
@@ -495,14 +495,14 @@ export function FeaturesOrbit() {
           style={{ opacity: reduced ? 1 : 0.12 }}
         >
           <p className="text-[11px] font-medium tracking-[0.22em] text-zinc-500 uppercase">
-            Built for long thinking
+            Flight systems
           </p>
           <h2 className="mt-2.5 font-[family-name:var(--font-landing)] text-[clamp(1.65rem,7vw,2.75rem)] leading-[1.1] font-medium tracking-[-0.035em] text-white sm:mt-3">
-            Quiet tools. Dense context.
+            Instruments for deep work.
           </h2>
         </div>
 
-        {/* Desktop orbit row — untouched fan-out effect */}
+        {/* Desktop orbit row - untouched fan-out effect */}
         <div className="relative mx-auto hidden w-full max-w-[1120px] sm:block">
           <div
             ref={desktopRowRef}
@@ -522,7 +522,7 @@ export function FeaturesOrbit() {
           </div>
         </div>
 
-        {/* Mobile: one compact stage — title above, card+dots centered as a unit */}
+        {/* Mobile: one compact stage - title above, card+dots centered as a unit */}
         <div
           className={cn(
             "relative sm:hidden",

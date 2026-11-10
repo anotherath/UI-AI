@@ -6,7 +6,7 @@ import { scrollLandingToTop } from "@/components/landing/smooth-scroll";
 import { cn } from "@/lib/utils";
 
 /**
- * Fixed corner control — appears after leaving the hero, scrolls to top.
+ * Fixed corner control - appears after leaving the hero, scrolls to top.
  */
 export function LandingBackToTop() {
   const [visible, setVisible] = useState(false);

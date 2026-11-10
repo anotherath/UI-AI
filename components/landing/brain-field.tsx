@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Technical stroke brain — still line-art, but denser and more cinematic.
+ * Technical stroke brain - still line-art, but denser and more cinematic.
  */
 
 function DecorPanel({ side }: { side: "left" | "right" }) {
@@ -467,14 +467,14 @@ export function BrainField() {
 
       <div className="relative mx-auto mb-7 max-w-[720px] text-center sm:mb-12">
         <p className="text-[11px] font-medium tracking-[0.22em] text-zinc-500 uppercase">
-          Internal map
+          Telemetry
         </p>
         <h2 className="mt-3 font-[family-name:var(--font-landing)] text-[clamp(1.75rem,4vw,2.75rem)] leading-[1.1] font-medium tracking-[-0.035em] text-white">
-          A mind you can see working.
+          Watch the reasoning ignite.
         </h2>
         <p className="mx-auto mt-2.5 max-w-[32rem] text-sm leading-relaxed text-zinc-500 sm:mt-3 sm:text-[15px]">
-          Context routes through projects and shared knowledge - less like a
-          chat log, more like a living cortex.
+          Context routes through projects and archives - less like a chat log,
+          more like a living cortex under glass.
         </p>
       </div>
 

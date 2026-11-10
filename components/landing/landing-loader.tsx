@@ -184,7 +184,7 @@ export const LandingLoader: FC<LandingLoaderProps> = ({
         exiting && "pointer-events-none -translate-y-3 opacity-0",
       )}
     >
-      {/* Cinematic backdrop — same universe as the hero */}
+      {/* Cinematic backdrop - same universe as the hero */}
       <div aria-hidden className="pointer-events-none absolute inset-0">
         <div
           className="absolute inset-0 scale-110 bg-cover bg-center opacity-40 blur-md"

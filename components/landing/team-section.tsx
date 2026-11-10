@@ -152,13 +152,13 @@ function TeamHeading({
       )}
     >
       <p className="text-[11px] font-medium tracking-[0.22em] text-zinc-500 uppercase">
-        The humans
+        Ground crew
       </p>
       <h2 className="mt-3 font-[family-name:var(--font-landing)] text-[clamp(1.75rem,4vw,2.75rem)] leading-[1.1] font-medium tracking-[-0.035em] text-white">
         Built by people with normal LinkedIns.
       </h2>
       <p className="mx-auto mt-2.5 max-w-sm text-sm leading-relaxed text-zinc-500 sm:mt-3">
-        No FAANG flex. Just a small crew that ships calm tools.
+        No FAANG flex. A small crew shipping instruments for sharp minds.
       </p>
     </div>
   );
@@ -389,7 +389,7 @@ export function TeamSection() {
   return (
     <section
       ref={sectionRef}
-      // Do NOT put overflow-hidden here — it breaks position:sticky on mobile.
+      // Do NOT put overflow-hidden here - it breaks position:sticky on mobile.
       className={cn(
         "landing-team relative bg-[#050505]",
         reduced
@@ -412,7 +412,7 @@ export function TeamSection() {
         className="landing-team-orbit pointer-events-none absolute top-1/2 left-1/2 hidden size-[720px] rounded-full border border-dashed border-sky-400/10 lg:block"
       />
 
-      {/* Mobile: sticky stage — vertical scroll drives left→right travel */}
+      {/* Mobile: sticky stage - vertical scroll drives left→right travel */}
       <div
         ref={stickyRef}
         className={cn(

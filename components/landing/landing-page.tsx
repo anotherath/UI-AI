@@ -48,7 +48,7 @@ export function LandingPage({
   embedded = false,
   onEnterApp,
 }: {
-  /** Render inside the app shell (Build) — no marketing chrome / window Lenis. */
+  /** Render inside the app shell (Build) - no marketing chrome / window Lenis. */
   embedded?: boolean;
   /** When embedded, CTA enters New chat instead of routing to /app. */
   onEnterApp?: () => void;
@@ -162,7 +162,7 @@ export function LandingPage({
 
     const onReady = () => finish();
 
-    // Blob is already fully fetched — reveal as soon as the first frame can play.
+    // Blob is already fully fetched - reveal as soon as the first frame can play.
     if (video.readyState >= 3) {
       finish();
     } else {
@@ -292,8 +292,8 @@ export function LandingPage({
               Intelligence
             </h1>
             <p className="mt-6 max-w-[34rem] text-base leading-relaxed text-[#e4e4e4]/90 drop-shadow-[0_8px_24px_rgba(0,0,0,0.85)] sm:text-lg">
-              A quieter workspace for thinking with AI - projects, shared
-              knowledge, and chats that stay where they belong.
+              An AI assistant for sharp thinking - then create, build, and
+              launch when the idea is ready.
             </p>
           </div>
 
@@ -376,11 +376,11 @@ export function LandingPage({
         >
           <div className="landing-reveal landing-reveal-3 mx-auto mb-10 max-w-[640px] text-center sm:mb-12">
             <h2 className="font-[family-name:var(--font-landing)] text-[clamp(1.75rem,4vw,2.5rem)] leading-[1.1] font-medium tracking-[-0.035em] text-white">
-              The workspace, at a glance
+              Mission control, briefly
             </h2>
             <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-[#8a8a8a] sm:text-[15px]">
-              Same quiet layout as the app — chat, Imagine, Build website, and
-              Slides in one place.
+              Chat for the hard questions. Imagine, Build, and Slides when you
+              want to make something visible.
             </p>
           </div>
           <div className="landing-preview w-full">
@@ -399,7 +399,7 @@ export function LandingPage({
 
       {/*
         CTA + footer share one stage so the moon limb can rise under the
-        copy. The clip window must be taller than the protruding disk —
+        copy. The clip window must be taller than the protruding disk -
         otherwise the apex gets cut into a flat chord.
       */}
       <section
@@ -424,14 +424,14 @@ export function LandingPage({
 
         <div className="relative z-10 mx-auto max-w-[680px] pb-16 sm:pb-20">
           <p className="text-[11px] font-medium tracking-[0.22em] text-zinc-500 uppercase">
-            Ready when you are
+            Ignition
           </p>
           <h2 className="mt-4 font-[family-name:var(--font-landing)] text-[clamp(2.1rem,5.5vw,3.5rem)] leading-[1.05] font-medium tracking-[-0.04em] text-white">
-            Start where the work lives.
+            Ask the next hard question.
           </h2>
           <p className="mx-auto mt-4 max-w-md text-sm leading-relaxed text-zinc-500 sm:text-base">
-            Jump into the workspace and open a new chat, a project, or your
-            library.
+            Open a chat, keep a project orbiting, or pull something from the
+            library - then go further.
           </p>
           {embedded ? (
             <button
@@ -622,7 +622,7 @@ function ProductPreview() {
     };
   };
 
-  // Pixel coords inside the frame — CSS % in transform is relative to the
+  // Pixel coords inside the frame - CSS % in transform is relative to the
   // cursor itself, not the parent, so percentages always landed near the logo.
   const moveCursorTo = (
     el: HTMLElement | null,
@@ -647,7 +647,7 @@ function ProductPreview() {
     await wait(140);
   };
 
-  /** Soft press on the control itself — no floating blue ripple. */
+  /** Soft press on the control itself - no floating blue ripple. */
   const tapPulse = async (target: "composer" | "send") => {
     setPressTarget(target);
     await wait(150);
@@ -674,7 +674,7 @@ function ProductPreview() {
       if (startedRef.current || cancelledRef.current) return;
       startedRef.current = true;
 
-      // Mobile preview: no cursor — press the composer / send control itself.
+      // Mobile preview: no cursor - press the composer / send control itself.
       const useCursor = window.matchMedia("(min-width: 768px)").matches;
       setPointerDemo(useCursor);
 
@@ -919,14 +919,14 @@ function ProductPreview() {
               } as CSSProperties
             }
           >
-            {/* Mobile sidebar trigger — matches /app chrome */}
+            {/* Mobile sidebar trigger - matches /app chrome */}
             <div className="absolute top-0 left-0 z-10 flex h-10 items-center px-2.5 pt-1 md:hidden">
               <span className="inline-flex size-8 items-center justify-center rounded-md text-zinc-400">
                 <PanelLeftIcon className="size-4" />
               </span>
             </div>
 
-            {/* Files + Notes — appear once the demo chat is live */}
+            {/* Files + Notes - appear once the demo chat is live */}
             {chatActive ? (
               <div className="absolute top-0 right-0 z-10 flex h-10 items-center justify-end gap-0.5 px-3 pt-1">
                 <span className="inline-flex size-8 items-center justify-center rounded-lg text-zinc-400">
