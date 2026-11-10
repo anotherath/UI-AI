@@ -20,7 +20,10 @@ function userInitials(name: string) {
     .join("");
 }
 
-export const UserMenu: FC<{ user: SidebarUser }> = ({ user }) => {
+export const UserMenu: FC<{
+  user: SidebarUser;
+  onSignOut?: () => void;
+}> = ({ user, onSignOut }) => {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -77,7 +80,10 @@ export const UserMenu: FC<{ user: SidebarUser }> = ({ user }) => {
             type="button"
             role="menuitem"
             className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-red-300 transition-colors hover:bg-red-500/10 hover:text-red-200"
-            onClick={() => setOpen(false)}
+            onClick={() => {
+              setOpen(false);
+              onSignOut?.();
+            }}
           >
             <LogOutIcon className="size-4 shrink-0" />
             Sign out
@@ -91,21 +97,25 @@ export const UserMenu: FC<{ user: SidebarUser }> = ({ user }) => {
         aria-expanded={open}
         data-slot="aui_user-menu-trigger"
         className={cn(
-          "flex w-full items-center gap-2 rounded-md p-2 text-left transition-colors hover:bg-muted",
-          "group-data-[sidebar-mode=icon]:size-8! group-data-[sidebar-mode=icon]:justify-center group-data-[sidebar-mode=icon]:p-0!",
-          open && "bg-muted",
+          "flex w-full items-center gap-2.5 rounded-xl px-2 py-1.5 text-left",
+          "group-data-[sidebar-mode=icon]:size-8! group-data-[sidebar-mode=icon]:justify-center group-data-[sidebar-mode=icon]:rounded-lg group-data-[sidebar-mode=icon]:p-0!",
         )}
         onClick={() => setOpen((value) => !value)}
       >
-        <Avatar size="default">
+        <Avatar
+          size="default"
+          className="size-8 after:border-white/10"
+        >
           {user.image ? <AvatarImage src={user.image} alt={user.name} /> : null}
-          <AvatarFallback>{userInitials(user.name) || "U"}</AvatarFallback>
+          <AvatarFallback className="bg-white/8 text-xs font-medium text-zinc-200">
+            {userInitials(user.name) || "U"}
+          </AvatarFallback>
         </Avatar>
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5 leading-none group-data-[sidebar-mode=icon]:hidden">
-          <span className="truncate text-sm font-semibold text-sidebar-foreground">
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5 leading-tight group-data-[sidebar-mode=icon]:hidden">
+          <span className="truncate text-sm font-medium text-zinc-100">
             {user.name}
           </span>
-          <span className="truncate text-xs text-muted-foreground">
+          <span className="truncate text-[11px] text-zinc-500">
             {user.email}
           </span>
         </div>

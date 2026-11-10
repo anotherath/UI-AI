@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MessageSquareIcon, SearchIcon, XIcon } from "lucide-react";
+import { SearchIcon, XIcon } from "lucide-react";
 import { useAui, useAuiState } from "@assistant-ui/react";
 import {
   Dialog,
@@ -18,7 +18,7 @@ type ThreadSearchDialogProps = {
   onOpenChange: (open: boolean) => void;
 };
 
-function formatRelativeVi(date: Date | undefined, now = new Date()): string {
+function formatRelative(date: Date | undefined, now = new Date()): string {
   if (!date || Number.isNaN(date.getTime())) return "";
 
   const startOfToday = new Date(
@@ -33,15 +33,15 @@ function formatRelativeVi(date: Date | undefined, now = new Date()): string {
   ).getTime();
   const dayDiff = Math.round((startOfToday - startOfThatDay) / 86_400_000);
 
-  if (dayDiff <= 0) return "Hôm nay";
-  if (dayDiff === 1) return "Hôm qua";
-  if (dayDiff < 30) return `${dayDiff} ngày`;
+  if (dayDiff <= 0) return "Today";
+  if (dayDiff === 1) return "Yesterday";
+  if (dayDiff < 30) return `${dayDiff}d`;
   if (dayDiff < 365) {
     const months = Math.max(1, Math.floor(dayDiff / 30));
-    return `${months} tháng`;
+    return `${months}mo`;
   }
   const years = Math.max(1, Math.floor(dayDiff / 365));
-  return `${years} năm`;
+  return `${years}y`;
 }
 
 export function ThreadSearchDialog({
@@ -101,72 +101,74 @@ export function ThreadSearchDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
-        overlayClassName="bg-black/60 supports-backdrop-filter:backdrop-blur-[2px]"
+        overlayClassName="bg-black/55"
         className={cn(
-          "flex h-[min(72vh,36rem)] w-[min(100%-2rem,34rem)] max-w-none -translate-x-1/2 -translate-y-1/2 flex-col gap-0 overflow-hidden rounded-3xl border border-white/10 bg-[#1c1c1f] p-0 text-zinc-100 shadow-2xl ring-0 sm:max-w-none",
+          "flex h-[min(68vh,32rem)] w-[min(100%-2rem,28rem)] max-w-none -translate-x-1/2 -translate-y-1/2 flex-col gap-0 overflow-hidden rounded-2xl border border-white/5 bg-[#0e0e10] p-0 text-zinc-100 shadow-[0_24px_80px_rgba(0,0,0,0.55)] ring-0 sm:max-w-none",
         )}
       >
-        <DialogTitle className="sr-only">
-          Tìm kiếm trong các cuộc trò chuyện
-        </DialogTitle>
+        <DialogTitle className="sr-only">Search chats</DialogTitle>
         <DialogDescription className="sr-only">
-          Tìm và mở một cuộc trò chuyện gần đây
+          Find and open a recent conversation
         </DialogDescription>
 
-        <div className="flex shrink-0 items-center gap-3 border-b border-white/10 px-4">
-          <SearchIcon className="size-[18px] shrink-0 text-zinc-500" />
-          <input
-            ref={inputRef}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Tìm kiếm trong các cuộc trò chuyện"
-            aria-label="Tìm kiếm trong các cuộc trò chuyện"
-            className="h-14 w-full bg-transparent text-[15px] text-zinc-100 outline-none placeholder:text-zinc-500"
-            onKeyDown={(event) => {
-              if (event.nativeEvent.isComposing) return;
-              if (event.key === "ArrowDown") {
-                event.preventDefault();
-                setActiveIndex((i) =>
-                  results.length === 0 ? 0 : Math.min(i + 1, results.length - 1),
-                );
-              } else if (event.key === "ArrowUp") {
-                event.preventDefault();
-                setActiveIndex((i) => Math.max(i - 1, 0));
-              } else if (event.key === "Enter") {
-                event.preventDefault();
-                const target = results[activeIndex];
-                if (target) selectThread(target.id);
-              }
-            }}
-          />
+        <div className="flex shrink-0 items-center gap-2 px-3 pt-3 pb-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-white/10 bg-[#17171b] px-3">
+            <SearchIcon className="size-4 shrink-0 text-zinc-500" />
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search chats"
+              aria-label="Search chats"
+              className="h-10 w-full bg-transparent text-sm text-zinc-100 outline-none placeholder:text-zinc-500"
+              onKeyDown={(event) => {
+                if (event.nativeEvent.isComposing) return;
+                if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  setActiveIndex((i) =>
+                    results.length === 0
+                      ? 0
+                      : Math.min(i + 1, results.length - 1),
+                  );
+                } else if (event.key === "ArrowUp") {
+                  event.preventDefault();
+                  setActiveIndex((i) => Math.max(i - 1, 0));
+                } else if (event.key === "Enter") {
+                  event.preventDefault();
+                  const target = results[activeIndex];
+                  if (target) selectThread(target.id);
+                }
+              }}
+            />
+          </div>
           <DialogClose
             render={
               <Button
                 variant="ghost"
                 size="icon"
-                className="size-8 shrink-0 rounded-full text-zinc-400 hover:bg-white/10 hover:text-white"
+                className="size-8 shrink-0 rounded-lg text-zinc-500 hover:bg-white/10 hover:text-zinc-200"
               />
             }
           >
             <XIcon className="size-4" />
-            <span className="sr-only">Đóng</span>
+            <span className="sr-only">Close</span>
           </DialogClose>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-3 pt-3">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-3">
           {results.length === 0 ? (
-            <div className="flex h-full min-h-40 items-center justify-center px-3 text-sm text-zinc-500">
-              {searching ? "Không tìm thấy cuộc trò chuyện" : "Chưa có cuộc trò chuyện"}
+            <div className="flex h-full min-h-32 items-center justify-center px-3 text-sm text-zinc-500">
+              {searching ? "No chats found" : "No chats yet"}
             </div>
           ) : (
             <>
-              <div className="px-3 pb-2 text-xs font-medium tracking-wide text-zinc-500">
-                {searching ? "Kết quả" : "Gần đây"}
+              <div className="px-2.5 pb-1.5 pt-1 text-xs font-medium tracking-wide text-zinc-500 uppercase">
+                {searching ? "Results" : "Recent"}
               </div>
               <ul className="flex flex-col gap-0.5" role="listbox">
                 {results.map((item, index) => {
                   const active = index === activeIndex;
-                  const when = formatRelativeVi(item.lastMessageAt);
+                  const when = formatRelative(item.lastMessageAt);
                   return (
                     <li key={item.id}>
                       <button
@@ -174,16 +176,15 @@ export function ThreadSearchDialog({
                         role="option"
                         aria-selected={active}
                         className={cn(
-                          "flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-colors",
+                          "flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-left text-sm transition-colors",
                           active
-                            ? "bg-white/10 text-white"
-                            : "text-zinc-200 hover:bg-white/5 hover:text-white",
+                            ? "bg-muted text-zinc-100"
+                            : "text-zinc-300 hover:bg-muted hover:text-zinc-100",
                         )}
                         onMouseEnter={() => setActiveIndex(index)}
                         onClick={() => selectThread(item.id)}
                       >
-                        <MessageSquareIcon className="size-[18px] shrink-0 text-zinc-400" />
-                        <span className="min-w-0 flex-1 truncate text-[15px]">
+                        <span className="min-w-0 flex-1 truncate">
                           {item.title}
                         </span>
                         {when ? (

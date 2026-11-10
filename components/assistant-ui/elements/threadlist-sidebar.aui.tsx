@@ -17,26 +17,30 @@ import {
 } from "@/components/assistant-ui/elements/thread-list.aui";
 import { ProjectsSection } from "@/components/assistant-ui/elements/projects-section.aui";
 import { ThreadSearchDialog } from "@/components/assistant-ui/elements/thread-search-dialog.aui";
+import { useAuth } from "@/components/auth/auth-provider";
 import { UserMenu } from "@/components/assistant-ui/elements/user-menu.aui";
-
-type SidebarUser = {
-  name: string;
-  email: string;
-  image?: string | null;
-};
-
-// Auth chưa gắn — placeholder tạm. Sẽ thay bằng session Google sau.
-const PLACEHOLDER_USER: SidebarUser = {
-  name: "User",
-  email: "user@example.com",
-  image: null,
-};
+import { useChatSessionsStore } from "@/lib/chat-sessions-store";
+import { useProjectsStore } from "@/lib/projects-store";
 
 export function ThreadListSidebar({
-  user = PLACEHOLDER_USER,
   ...props
-}: React.ComponentProps<typeof Sidebar> & { user?: SidebarUser }) {
+}: React.ComponentProps<typeof Sidebar>) {
   const [searchOpen, setSearchOpen] = useState(false);
+  const { user, logout, isBootstrapping } = useAuth();
+  const startNormalChat = useProjectsStore((s) => s.startNormalChat);
+  const menuUser = user
+    ? {
+        name: user.name?.trim() || user.email || "User",
+        email: user.email,
+        image: user.avatar_url ?? null,
+      }
+    : null;
+
+  const handleSignOut = () => {
+    useChatSessionsStore.getState().clearActiveSession();
+    startNormalChat();
+    logout();
+  };
 
   return (
     <Sidebar
@@ -93,16 +97,25 @@ export function ThreadListSidebar({
         </div>
       </SidebarHeader>
 
-      <SidebarContent className="aui-sidebar-content overflow-x-hidden px-2 group-data-[sidebar-mode=icon]:items-start group-data-[sidebar-mode=icon]:pt-2">
-        <ThreadList />
-        <ProjectsSection />
+      <SidebarContent className="aui-sidebar-content overflow-x-hidden overflow-y-hidden px-2 group-data-[sidebar-mode=icon]:items-start group-data-[sidebar-mode=icon]:overflow-hidden group-data-[sidebar-mode=icon]:pt-2">
+        {/* CHATS scrolls inside its own max-height; PROJECTS stays below. */}
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+          <div className="min-h-0 shrink">
+            <ThreadList />
+          </div>
+          <div className="min-h-0 shrink-0 overflow-y-auto">
+            <ProjectsSection />
+          </div>
+        </div>
       </SidebarContent>
 
       <SidebarRail />
 
-      <SidebarFooter className="aui-sidebar-footer overflow-visible border-t border-white/5 group-data-[sidebar-mode=icon]:items-start group-data-[sidebar-mode=icon]:p-2">
-        <UserMenu user={user} />
-      </SidebarFooter>
+      {!isBootstrapping && menuUser ? (
+        <SidebarFooter className="aui-sidebar-footer overflow-visible border-t border-white/5 group-data-[sidebar-mode=icon]:items-start group-data-[sidebar-mode=icon]:p-2">
+          <UserMenu user={menuUser} onSignOut={handleSignOut} />
+        </SidebarFooter>
+      ) : null}
 
       <ThreadSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
     </Sidebar>
