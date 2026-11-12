@@ -8,7 +8,7 @@ import {
   PlusIcon,
 } from "lucide-react";
 import { useAui, useAuiState } from "@assistant-ui/react";
-import { Button } from "@/components/ui/button";
+import { TooltipIconButton } from "@/components/assistant-ui/elements/tooltip-icon-button";
 import { cn } from "@/lib/utils";
 import { getProjectIcon } from "@/lib/project-icons";
 import {
@@ -145,17 +145,17 @@ export const ProjectsSection: FC = () => {
             Projects
           </h2>
         </button>
-        <Button
+        <TooltipIconButton
+          tooltip="Browse projects"
+          side="bottom"
           type="button"
-          variant="ghost"
-          size="icon"
           aria-label="Browse projects"
           data-slot="aui_projects-new"
           className="size-8 shrink-0 rounded-md bg-transparent text-zinc-400 hover:bg-muted hover:text-white"
           onClick={openBrowseProjects}
         >
           <FolderIcon className="size-4 shrink-0" />
-        </Button>
+        </TooltipIconButton>
       </div>
 
       <div

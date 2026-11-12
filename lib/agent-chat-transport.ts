@@ -25,6 +25,7 @@ import {
 } from "@/lib/chat-session-map";
 import { useAgentRunStatusStore } from "@/lib/agent-run-status-store";
 import { useChatSessionsStore } from "@/lib/chat-sessions-store";
+import { useComposerPrefsStore } from "@/lib/composer-prefs-store";
 import { useProjectsStore } from "@/lib/projects-store";
 import {
   clearPendingChatRun,
@@ -186,49 +187,20 @@ const resumableStorage = {
   },
 };
 
-const STEP_TITLE: Record<string, string> = {
-  orchestrator: "Orchestrating",
-  single_tool: "Using tools",
-  multi_plan: "Planning next moves",
-  execute_plan: "Using tools",
-  gather_review: "Reviewing",
-  generate: "Generating",
-  input_guard: "Checking",
-  output_guard: "Checking",
-  retrieve: "Searching",
-  rerank: "Ranking",
-};
-
+/** Prefer agent-provided copy; only invent "Thinking" when the payload is empty. */
 function stepTitle(data: Record<string, unknown>): string {
-  const name = typeof data.name === "string" ? data.name : "";
-  const kind = typeof data.kind === "string" ? data.kind : "";
-  return STEP_TITLE[name] || STEP_TITLE[kind] || name || kind || "Thinking";
+  const title = typeof data.title === "string" ? data.title.trim() : "";
+  if (title) return title;
+  const name = typeof data.name === "string" ? data.name.trim() : "";
+  if (name) return name;
+  const kind = typeof data.kind === "string" ? data.kind.trim() : "";
+  return kind || "Thinking";
 }
 
-function toolStatusLabel(toolName: string): string {
-  const trimmed = toolName.trim();
-  return trimmed ? `Using · ${trimmed}` : "Using tools";
-}
-
+/** Mid-step labels come from agent `text` as-is — no FE remapping. */
 function statusFromStepDelta(data: Record<string, unknown>): string | null {
-  const payload =
-    data.payload && typeof data.payload === "object" && !Array.isArray(data.payload)
-      ? (data.payload as Record<string, unknown>)
-      : null;
-  const phase = typeof payload?.phase === "string" ? payload.phase : "";
-  if (phase === "tool_start") {
-    const tool = typeof payload?.tool === "string" ? payload.tool : "";
-    return toolStatusLabel(tool);
-  }
-  if (phase === "tool_end") {
-    // Keep showing the tool until the next step — don't flash a "done" line.
-    return null;
-  }
-  if (phase === "llm_start") {
-    const node = typeof payload?.node === "string" ? payload.node : "";
-    return STEP_TITLE[node] || "Thinking";
-  }
-  return null;
+  const text = typeof data.text === "string" ? data.text.trim() : "";
+  return text || null;
 }
 
 function agentSseToUiMessageStream(
@@ -276,7 +248,7 @@ function agentSseToUiMessageStream(
       const ensureTextStart = () => {
         ensureStart();
         if (textStarted) return;
-        // Keep last status (e.g. Generating) — clearing here flashes "Thinking"
+        // Keep last agent status — clearing here flashes "Thinking"
         // via the indicator fallback before the first text paint.
         controller.enqueue({ type: "text-start", id: textPartId });
         textStarted = true;
@@ -322,15 +294,35 @@ function agentSseToUiMessageStream(
         if (finished) return;
         finished = true;
         flushNow();
+        const startedAt =
+          useAgentRunStatusStore.getState().startedAtByThreadId[
+            statusThreadId
+          ];
+        const runDurationMs =
+          startedAt != null ? Math.max(0, Date.now() - startedAt) : undefined;
         // Quiet done beat — avoid flashing a stale in-progress label.
         setRunStatus(reason === "stop" ? "Done" : null);
         if (textStarted) {
           controller.enqueue({ type: "text-end", id: textPartId });
         }
+        const meta = {
+          ...(messageMetadata?.backendMessageId
+            ? {
+                backendMessageId: messageMetadata.backendMessageId,
+                custom: {
+                  backendMessageId: messageMetadata.backendMessageId,
+                  ...(runDurationMs != null ? { runDurationMs } : {}),
+                },
+              }
+            : runDurationMs != null
+              ? { custom: { runDurationMs }, runDurationMs }
+              : {}),
+          ...(runDurationMs != null ? { runDurationMs } : {}),
+        };
         controller.enqueue({
           type: "finish",
           finishReason: reason,
-          ...(messageMetadata ? { messageMetadata } : {}),
+          ...(Object.keys(meta).length > 0 ? { messageMetadata: meta } : {}),
         });
         if (clearPendingOnFinish && shouldClearPending) {
           clearPendingChatRun(sessionId);
@@ -389,10 +381,6 @@ function agentSseToUiMessageStream(
               break;
             }
             case "step_started": {
-              if (evt.data.name === "generate") {
-                setRunStatus("Generating");
-                break;
-              }
               ensureStart();
               setRunStatus(stepTitle(evt.data));
               break;
@@ -403,7 +391,7 @@ function agentSseToUiMessageStream(
               break;
             }
             case "step_finished": {
-              // Keep the last friendly label; raw summaries (route=…) stay hidden.
+              // Keep last agent label until the next step / Done.
               break;
             }
             case "message_delta": {
@@ -535,6 +523,7 @@ export class AgentChatTransport implements ChatTransport<UIMessage> {
     // Promote this chat to the top of CHATS immediately.
     useChatSessionsStore.getState().touchSession(sessionId);
     useAgentRunStatusStore.getState().setStatus(chatId, "Thinking");
+    const model = useComposerPrefsStore.getState().model;
 
     const pendingEdit = takePendingMessageEdit();
     try {
@@ -544,20 +533,23 @@ export class AgentChatTransport implements ChatTransport<UIMessage> {
           sessionId,
           pendingEdit.messageId,
           content,
-          abortSignal,
+          { model, abortSignal },
         );
       } else if (trigger === "regenerate-message") {
         // Reuse the last known user message id — never POST a duplicate user.
         const userMessageId =
           getLastSessionUserMessageId(sessionId) ??
           latestUserBackendId(messages);
-        body = await regenerateChatMessageStream(
-          sessionId,
+        body = await regenerateChatMessageStream(sessionId, {
           userMessageId,
+          model,
           abortSignal,
-        );
+        });
       } else {
-        body = await postChatMessageStream(sessionId, content, abortSignal);
+        body = await postChatMessageStream(sessionId, content, {
+          model,
+          abortSignal,
+        });
       }
       return agentSseToUiMessageStream(body, sessionId, { threadId: chatId });
     } catch (error) {

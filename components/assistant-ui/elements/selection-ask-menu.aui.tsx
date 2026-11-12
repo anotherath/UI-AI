@@ -1,16 +1,23 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState, type FC } from "react";
-import { GitBranchIcon, MessageSquareQuoteIcon } from "lucide-react";
+import {
+  CopyIcon,
+  GitBranchIcon,
+  MessageSquareQuoteIcon,
+} from "lucide-react";
 import { useAui } from "@assistant-ui/react";
 import { requestSelectionChipInsert } from "@/components/assistant-ui/elements/inline-chip-composer-input";
 import { useContextRailStore } from "@/lib/context-rail-store";
+import { resolveBackendMessageId } from "@/lib/backend-message-id";
 import { useSubsessionsStore } from "@/lib/subsessions-store";
 
 type SelectionTarget = {
   text: string;
   messageId: string;
   rect: DOMRect;
+  /** True when the highlight is inside the subsession rail chat. */
+  inSubsession: boolean;
 };
 
 type MenuPosition = { left: number; top: number };
@@ -42,7 +49,11 @@ function readAssistantSelection(): SelectionTarget | null {
   const rect = range.getBoundingClientRect();
   if (rect.width === 0 && rect.height === 0) return null;
 
-  return { text, messageId, rect };
+  const inSubsession = Boolean(
+    messageRoot.closest("[data-subsession-chat]"),
+  );
+
+  return { text, messageId, rect, inSubsession };
 }
 
 function positionForRect(
@@ -67,7 +78,7 @@ function positionForRect(
 
 /**
  * Floating actions when the user highlights text inside an assistant message:
- * ask here, or ask in a subsession.
+ * copy, ask here, or ask in a subsession.
  */
 export const SelectionAskMenu: FC = () => {
   const aui = useAui();
@@ -156,54 +167,129 @@ export const SelectionAskMenu: FC = () => {
     setTarget(null);
   };
 
-  const focusComposer = () => {
+  const focusComposer = (subsession: boolean) => {
     window.requestAnimationFrame(() => {
       const input = document.querySelector<HTMLElement>(
-        '.aui-lexical-input, textarea[aria-label="Message input"]',
+        subsession
+          ? '[data-subsession-chat] .aui-lexical-input'
+          : '.aui-composer-root .aui-lexical-input, textarea[aria-label="Message input"]',
       );
       input?.focus({ preventScroll: true });
     });
   };
 
+  const copySelection = () => {
+    if (!target) return;
+    const text = target.text;
+    void (async () => {
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        // Clipboard may be blocked; still dismiss the menu.
+      } finally {
+        clearSelection();
+      }
+    })();
+  };
+
   const askHere = () => {
     if (!target) return;
+    if (target.inSubsession) {
+      requestSelectionChipInsert({
+        messageId: target.messageId,
+        text: target.text,
+        scope: "subsession",
+      });
+      clearSelection();
+      focusComposer(true);
+      return;
+    }
     aui.composer.setQuote(undefined);
     requestSelectionChipInsert({
       messageId: target.messageId,
       text: target.text,
+      scope: "main",
     });
     clearSelection();
-    focusComposer();
+    focusComposer(false);
   };
 
   const askInSubsession = () => {
     if (!target) return;
     const mainThreadId = aui.threads.getState().mainThreadId;
-    const messageCount = aui.thread.getState().messages.length;
     if (!mainThreadId) return;
 
+    if (target.inSubsession) {
+      const active = useSubsessionsStore.getState().byId[
+        useSubsessionsStore.getState().activeId ?? ""
+      ];
+      const forkedFromMessageId = active?.forkedFromMessageId;
+      if (!forkedFromMessageId) return;
+      setPendingQuote(target.text);
+      void openFork({
+        parentThreadId: mainThreadId,
+        forkedFromMessageId,
+        forceNew: true,
+      })
+        .then(() => {
+          setPanel("subsession-chat");
+          clearSelection();
+        })
+        .catch(() => {
+          setPendingQuote(null);
+        });
+      return;
+    }
+
+    const threadMessage = aui.thread
+      .getState()
+      .messages.find((message) => message.id === target.messageId);
+    const forkedFromMessageId = threadMessage
+      ? resolveBackendMessageId(threadMessage)
+      : resolveBackendMessageId({ id: target.messageId });
+    if (!forkedFromMessageId) return;
+
     setPendingQuote(target.text);
-    openFork(mainThreadId, messageCount);
-    setPanel("subsession-chat");
-    clearSelection();
+    void openFork({
+      parentThreadId: mainThreadId,
+      forkedFromMessageId,
+    })
+      .then(() => {
+        setPanel("subsession-chat");
+        clearSelection();
+      })
+      .catch(() => {
+        setPendingQuote(null);
+      });
   };
 
   if (!target) return null;
 
   const actions = [
     {
+      key: "copy",
+      label: "Copy",
+      icon: CopyIcon,
+      onClick: copySelection,
+    },
+    {
       key: "here",
       label: "Ask about this",
       icon: MessageSquareQuoteIcon,
       onClick: askHere,
     },
-    {
-      key: "subsession",
-      label: "Ask in subsession",
-      icon: GitBranchIcon,
-      onClick: askInSubsession,
-    },
-  ] as const;
+    // Already inside a subsession — nesting another fork from here is noise.
+    ...(!target.inSubsession
+      ? [
+          {
+            key: "subsession" as const,
+            label: "Ask in subsession",
+            icon: GitBranchIcon,
+            onClick: askInSubsession,
+          },
+        ]
+      : []),
+  ];
 
   return (
     <div

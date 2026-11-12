@@ -40,7 +40,6 @@ import {
   $createSelectionChipNode,
   $isSelectionChipNode,
   SelectionChipNode,
-  type SelectionChipPayload,
 } from "@/components/assistant-ui/elements/selection-chip-node";
 import { selectionDirectiveLabel } from "@/components/assistant-ui/elements/selection-chip";
 import { useSelectionChipInsertStore } from "@/lib/selection-chip-insert-store";
@@ -50,13 +49,14 @@ import { cn } from "@/lib/utils";
 const ZWSP = "\u200B";
 
 /**
- * Lexical owns the live draft. Composer store is kept in sync (rAF-coalesced)
- * so Send/Enter never ship a stale first-character snapshot.
+ * Lexical owns the live draft. Composer / standalone stores stay in sync so
+ * Send/Enter never ship a stale first-character snapshot.
  */
-let flushComposerDraft: (() => void) | null = null;
+const flushByScope = new Map<string, () => string>();
 
-export function flushInlineComposerDraft() {
-  flushComposerDraft?.();
+/** Flush Lexical → draft store; returns the serialized text. */
+export function flushInlineComposerDraft(scope = "main"): string {
+  return flushByScope.get(scope)?.() ?? "";
 }
 
 function readEditorText(editor: LexicalEditor): string {
@@ -296,8 +296,10 @@ function ChipDeletePlugin() {
 }
 
 function EnterToSendPlugin({
+  scope,
   onEnter,
 }: {
+  scope: string;
   onEnter?: (() => void) | undefined;
 }) {
   const [editor] = useLexicalComposerContext();
@@ -313,7 +315,7 @@ function EnterToSendPlugin({
         if (event.isComposing || event.keyCode === 229) return false;
         event.preventDefault();
         // Flush cancels any pending rAF sync so send cannot race a stale draft.
-        flushInlineComposerDraft();
+        flushInlineComposerDraft(scope);
         if (onEnterRef.current) {
           onEnterRef.current();
         } else {
@@ -323,7 +325,7 @@ function EnterToSendPlugin({
       },
       COMMAND_PRIORITY_HIGH,
     );
-  }, [editor, aui]);
+  }, [editor, aui, scope]);
 
   return null;
 }
@@ -353,7 +355,7 @@ function SeedFromComposerPlugin() {
   return null;
 }
 
-function SyncToComposerPlugin() {
+function SyncToComposerPlugin({ scope }: { scope: string }) {
   const [editor] = useLexicalComposerContext();
   const aui = useAui();
   const composerEmpty = useAuiState((s) => s.composer.isEmpty);
@@ -370,16 +372,18 @@ function SyncToComposerPlugin() {
   );
 
   const flushNow = useCallback(() => {
-    applyText(readEditorText(editor));
+    const next = readEditorText(editor);
+    applyText(next);
+    return next;
   }, [applyText, editor]);
 
   useEffect(() => {
-    flushComposerDraft = flushNow;
+    flushByScope.set(scope, flushNow);
     lastEmptyRef.current = aui.composer.getState().isEmpty;
     return () => {
-      if (flushComposerDraft === flushNow) flushComposerDraft = null;
+      if (flushByScope.get(scope) === flushNow) flushByScope.delete(scope);
     };
-  }, [flushNow, aui]);
+  }, [flushNow, aui, scope]);
 
   const onChange = useCallback(
     (editorState: EditorState) => {
@@ -407,14 +411,71 @@ function SyncToComposerPlugin() {
   return <OnChangePlugin onChange={onChange} ignoreSelectionChange />;
 }
 
-function InsertChipPlugin() {
+/** Standalone (subsession) draft — never touches the main aui.composer store. */
+function SyncToStandalonePlugin({
+  scope,
+  onTextChange,
+  clearToken,
+}: {
+  scope: string;
+  onTextChange: (text: string) => void;
+  clearToken?: number;
+}) {
+  const [editor] = useLexicalComposerContext();
+  const onTextChangeRef = useRef(onTextChange);
+  onTextChangeRef.current = onTextChange;
+
+  const applyText = useCallback((next: string) => {
+    onTextChangeRef.current(next);
+  }, []);
+
+  const flushNow = useCallback(() => {
+    const next = readEditorText(editor);
+    applyText(next);
+    return next;
+  }, [applyText, editor]);
+
+  useEffect(() => {
+    flushByScope.set(scope, flushNow);
+    return () => {
+      if (flushByScope.get(scope) === flushNow) flushByScope.delete(scope);
+    };
+  }, [flushNow, scope]);
+
+  const onChange = useCallback(
+    (editorState: EditorState) => {
+      editorState.read(() => {
+        applyText(serializeEditor());
+      });
+    },
+    [applyText],
+  );
+
+  useEffect(() => {
+    if (clearToken == null || clearToken === 0) return;
+    editor.update(() => {
+      const root = $getRoot();
+      root.clear();
+      root.append($createParagraphNode());
+    });
+    applyText("");
+  }, [clearToken, editor, applyText]);
+
+  return <OnChangePlugin onChange={onChange} ignoreSelectionChange />;
+}
+
+function InsertChipPlugin({
+  scope,
+}: {
+  scope: "main" | "subsession";
+}) {
   const [editor] = useLexicalComposerContext();
   const pending = useSelectionChipInsertStore((s) => s.pending);
   const consume = useSelectionChipInsertStore((s) => s.consume);
 
   useEffect(() => {
-    if (!pending) return;
-    const chip = consume();
+    if (!pending || pending.scope !== scope) return;
+    const chip = consume(scope);
     if (!chip) return;
 
     editor.update(() => {
@@ -441,7 +502,7 @@ function InsertChipPlugin() {
       }
     });
     editor.focus();
-  }, [pending, consume, editor]);
+  }, [pending, consume, editor, scope]);
 
   return null;
 }
@@ -457,12 +518,14 @@ function AutoFocusPlugin({ autoFocus }: { autoFocus: boolean }) {
 export function requestSelectionChipInsert(payload: {
   messageId: string;
   text: string;
+  scope?: "main" | "subsession";
 }) {
   useSelectionChipInsertStore.getState().requestInsert({
     messageId: payload.messageId,
     label: selectionDirectiveLabel(payload.text),
     fullText: payload.text,
-  } satisfies SelectionChipPayload);
+    scope: payload.scope ?? "main",
+  });
 }
 
 type InlineChipComposerInputProps = {
@@ -472,6 +535,18 @@ type InlineChipComposerInputProps = {
   "aria-label"?: string;
   /** Override Enter (after draft flush). Default: aui.composer.send(). */
   onEnter?: () => void;
+  /**
+   * Which insert-queue + flush map this editor owns.
+   * Use `"subsession"` for the rail composer so chips don't land in main.
+   */
+  scope?: "main" | "subsession";
+  /**
+   * Standalone mode (subsession): sync Lexical → local draft instead of
+   * aui.composer. Required together with `onEnter` for send.
+   */
+  onTextChange?: (text: string) => void;
+  /** Bump after send to clear Lexical in standalone mode. */
+  clearToken?: number;
 };
 
 export const InlineChipComposerInput: FC<InlineChipComposerInputProps> = ({
@@ -480,16 +555,20 @@ export const InlineChipComposerInput: FC<InlineChipComposerInputProps> = ({
   className,
   "aria-label": ariaLabel = "Message input",
   onEnter,
+  scope = "main",
+  onTextChange,
+  clearToken,
 }) => {
+  const standalone = Boolean(onTextChange);
   const initialConfig = useMemo(
     () => ({
-      namespace: "aui-selection-chip-composer",
+      namespace: `aui-selection-chip-composer-${scope}`,
       onError(error: Error) {
         console.error("[InlineChipComposerInput]", error);
       },
       nodes: [SelectionChipNode],
     }),
-    [],
+    [scope],
   );
 
   return (
@@ -516,10 +595,20 @@ export const InlineChipComposerInput: FC<InlineChipComposerInputProps> = ({
         <HistoryPlugin />
         <ChipNavPlugin />
         <ChipDeletePlugin />
-        <EnterToSendPlugin onEnter={onEnter} />
-        <SeedFromComposerPlugin />
-        <SyncToComposerPlugin />
-        <InsertChipPlugin />
+        <EnterToSendPlugin scope={scope} onEnter={onEnter} />
+        {standalone && onTextChange ? (
+          <SyncToStandalonePlugin
+            scope={scope}
+            onTextChange={onTextChange}
+            clearToken={clearToken}
+          />
+        ) : (
+          <>
+            <SeedFromComposerPlugin />
+            <SyncToComposerPlugin scope={scope} />
+          </>
+        )}
+        <InsertChipPlugin scope={scope} />
         <AutoFocusPlugin autoFocus={autoFocus} />
       </div>
     </LexicalComposer>

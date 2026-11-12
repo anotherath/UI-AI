@@ -39,6 +39,15 @@ export const BUILD_PROMPTS = [
   "Event site with date, speakers, and RSVP.",
 ] as const;
 
+export const RESEARCH_PROMPTS = [
+  "Ask a research question and dig into sources.",
+  "Compare claims across recent papers.",
+  "Summarize the evidence for a hypothesis.",
+  "Find gaps in the literature on this topic.",
+  "Outline a brief with citations to verify.",
+  "What changed in this field in the last year?",
+] as const;
+
 const TYPE_MS = 38;
 const HOLD_MS = 2200;
 const DELETE_MS = 22;

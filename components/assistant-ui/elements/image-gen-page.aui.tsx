@@ -16,24 +16,28 @@ import {
 } from "@/components/assistant-ui/elements/welcome-tagline.aui";
 import { useFixedMenuPosition } from "@/hooks/use-fixed-menu-position";
 import {
-  COMPOSER_MODELS,
   useComposerPrefsStore,
   type ComposerModelId,
 } from "@/lib/composer-prefs-store";
+import { useModelsStore } from "@/lib/models-store";
 import { cn } from "@/lib/utils";
 
 /** Local model menu — Imagine page only, no chat Thread coupling. */
 function ImagineModelPicker() {
   const model = useComposerPrefsStore((s) => s.model);
   const setModel = useComposerPrefsStore((s) => s.setModel);
+  const modelOptions = useModelsStore((s) => s.options);
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const pos = useFixedMenuPosition(open, triggerRef);
+  const pos = useFixedMenuPosition(open, triggerRef, {
+    prefer: "above",
+    estimatedHeight: Math.min(280, 44 + modelOptions.length * 40),
+  });
   const selected =
-    COMPOSER_MODELS.find((option) => option.id === model) ?? COMPOSER_MODELS[0];
+    modelOptions.find((option) => option.id === model) ?? modelOptions[0];
 
   useEffect(() => {
     setMounted(true);
@@ -50,9 +54,12 @@ function ImagineModelPicker() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setOpen(false);
     };
-    window.addEventListener("pointerdown", onPointerDown);
+    const timer = window.setTimeout(() => {
+      window.addEventListener("pointerdown", onPointerDown);
+    }, 0);
     window.addEventListener("keydown", onKeyDown);
     return () => {
+      window.clearTimeout(timer);
       window.removeEventListener("pointerdown", onPointerDown);
       window.removeEventListener("keydown", onKeyDown);
     };
@@ -68,13 +75,14 @@ function ImagineModelPicker() {
           style={{
             position: "fixed",
             top: pos.top,
+            bottom: pos.bottom,
             left: pos.left,
             minWidth: Math.max(pos.minWidth, 168),
-            zIndex: 80,
+            zIndex: 200,
           }}
           className="overflow-hidden rounded-xl border border-white/10 bg-[#1a1a1e] p-1 shadow-[0_12px_40px_rgba(0,0,0,0.45)]"
         >
-          {COMPOSER_MODELS.map((option) => {
+          {modelOptions.map((option) => {
             const active = option.id === model;
             return (
               <button

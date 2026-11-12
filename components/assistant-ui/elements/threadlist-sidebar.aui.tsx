@@ -10,6 +10,12 @@ import {
   SidebarRail,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { AiMark } from "@/components/brand/ai-mark";
 import {
   ThreadList,
@@ -21,6 +27,24 @@ import { useAuth } from "@/components/auth/auth-provider";
 import { UserMenu } from "@/components/assistant-ui/elements/user-menu.aui";
 import { useChatSessionsStore } from "@/lib/chat-sessions-store";
 import { useProjectsStore } from "@/lib/projects-store";
+
+function SidebarToggleWithTooltip({
+  tooltip,
+  ...props
+}: React.ComponentProps<typeof SidebarTrigger> & { tooltip: string }) {
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger
+          render={<SidebarTrigger {...props} aria-label={tooltip} />}
+        />
+        <TooltipContent side="bottom" className="z-[200]">
+          {tooltip}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
 
 export function ThreadListSidebar({
   ...props
@@ -67,7 +91,8 @@ export function ThreadListSidebar({
               open={searchOpen}
               onOpenChange={setSearchOpen}
             />
-            <SidebarTrigger
+            <SidebarToggleWithTooltip
+              tooltip="Toggle sidebar"
               size="icon"
               className="size-8 text-zinc-400 hover:text-white"
             />
@@ -83,9 +108,9 @@ export function ThreadListSidebar({
             >
               <AiMark className="size-5" />
             </div>
-            <SidebarTrigger
+            <SidebarToggleWithTooltip
+              tooltip="Expand sidebar"
               size="icon"
-              aria-label="Expand sidebar"
               className="absolute inset-0 size-8 text-zinc-300 opacity-0 transition-opacity duration-150 group-hover/logo:opacity-100 hover:bg-white/10 hover:text-white"
             />
           </div>

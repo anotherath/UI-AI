@@ -48,36 +48,63 @@ export function expandSelectionDirectivesForAgent(text: string): string {
   return `Regarding this selected text:\n${excerpt}\n\n${question}`;
 }
 
-const chipClassName =
-  "aui-selection-chip inline-flex h-5 max-w-[min(100%,14rem)] items-center gap-1 rounded-md bg-[#1b3f5c] py-0 ps-1.5 pe-1.5 text-[13px] leading-none text-[#b7d4ea]";
+/**
+ * Sent-message chip: hard-cap display length so w-fit bubbles size to the
+ * visible chip, not the full label (CSS truncate alone does not shrink
+ * intrinsic width). Composer Lexical chips keep CSS-only truncate.
+ */
+const MESSAGE_CHIP_LABEL_MAX = 36;
 
-/** Renders selection directives as chips inside sent user messages. */
+function truncateChipLabel(label: string) {
+  const trimmed = label.replace(/\s+/g, " ").trim();
+  if (trimmed.length <= MESSAGE_CHIP_LABEL_MAX) return trimmed;
+  return `${trimmed.slice(0, MESSAGE_CHIP_LABEL_MAX - 1)}…`;
+}
+
+const messageChipClassName =
+  "aui-selection-chip inline-flex h-5 min-w-0 max-w-[14rem] items-center gap-1 overflow-hidden rounded-md bg-[#1b3f5c] py-0 ps-1.5 pe-1.5 text-[13px] leading-none text-[#b7d4ea]";
+
+/** Renders selection directives inside sent user messages. */
 export const SelectionAwareText: TextMessagePartComponent = ({ text }) => {
   const segments = defaultDirectiveFormatter.parse(text);
-  const hasMention = segments.some((segment) => segment.kind === "mention");
-  if (!hasMention) return text;
+  const quotes = segments.filter(
+    (segment) =>
+      segment.kind === "mention" && segment.type === SELECTION_DIRECTIVE_TYPE,
+  );
+  if (quotes.length === 0) return text;
+
+  const question = segments
+    .filter((segment) => segment.kind === "text")
+    .map((segment) => (segment.kind === "text" ? segment.text : ""))
+    .join("")
+    .replace(/^\s+/, "")
+    .trim();
 
   return (
-    <>
-      {segments.map((segment, index) => {
-        if (segment.kind === "text") {
-          return <span key={`t-${index}`}>{segment.text}</span>;
-        }
+    <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-1">
+      {quotes.map((segment) => {
+        if (segment.kind !== "mention") return null;
         return (
           <span
-            key={`m-${index}-${segment.id}`}
-            className={cn(chipClassName, "my-0.5")}
+            key={`m-${segment.id}`}
+            className={messageChipClassName}
             data-directive-type={segment.type}
             data-directive-id={segment.id}
+            title={segment.label}
           >
             <MessageSquareIcon
               className="size-3.5 shrink-0 text-[#6fa8cc]"
               strokeWidth={1.75}
             />
-            <span className="min-w-0 truncate">{segment.label}</span>
+            <span className="min-w-0 truncate">
+              {truncateChipLabel(segment.label)}
+            </span>
           </span>
         );
       })}
-    </>
+      {question ? (
+        <span className="min-w-0 whitespace-pre-wrap">{question}</span>
+      ) : null}
+    </span>
   );
 };

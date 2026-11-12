@@ -3,20 +3,90 @@
 import {
   StreamdownTextPrimitive,
   useIsStreamdownCodeBlock,
+  escapeCurrencyDollars,
+  normalizeMathDelimiters,
   type CodeHeaderProps,
   type StreamdownTextComponents,
   type StreamdownTextPrimitiveProps,
 } from "@assistant-ui/react-streamdown";
 import { code } from "@streamdown/code";
 import { cjk } from "@streamdown/cjk";
+import { createMathPlugin } from "@streamdown/math";
 import { type FC, memo, useMemo, useRef } from "react";
 import type { TextMessagePartProps } from "@assistant-ui/react";
 import { CheckIcon, CopyIcon } from "lucide-react";
+import { Streamdown } from "streamdown";
 import "streamdown/styles.css";
+import "katex/dist/katex.min.css";
 
 import { TooltipIconButton } from "@/components/assistant-ui/elements/tooltip-icon-button";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { cn } from "@/lib/utils";
+
+const math = createMathPlugin({
+  // normalizeMathDelimiters rewrites \\(...\\) → $...$
+  singleDollarTextMath: true,
+  errorColor: "var(--color-muted-foreground)",
+});
+
+/** `\left[`, `\big[`, … — must not be rewritten as math delimiters. */
+const LATEX_SIZING_BEFORE_BRACKET =
+  /\\(?:left|right|big|Big|bigg|Bigg|bigl|bigr|Bigl|Bigr|biggl|biggr|Biggl|Biggr)\s*$/;
+
+/**
+ * Models often emit display math as bare `[ \\int ... ]` (no backslash).
+ * Convert those to $$ / $ when the body looks like LaTeX — leave markdown
+ * links `[text](url)` and TeX `\left[...\right]` alone.
+ */
+function rewriteBareBracketLatex(text: string): string {
+  return text.replace(
+    /\[([^\]\n]*\\[a-zA-Z][^\]\n]*)\](?!\()/g,
+    (match, body: string, offset: number, full: string) => {
+      const trimmed = body.trim();
+      if (!trimmed) return match;
+      // `\[` display opener / already-TeX bracket — handled elsewhere.
+      if (offset > 0 && full[offset - 1] === "\\") return match;
+      const prefix = full.slice(Math.max(0, offset - 16), offset);
+      if (LATEX_SIZING_BEFORE_BRACKET.test(prefix)) return match;
+
+      const lineStart = full.lastIndexOf("\n", offset - 1) + 1;
+      const lineEndIdx = full.indexOf("\n", offset + match.length);
+      const lineEnd = lineEndIdx === -1 ? full.length : lineEndIdx;
+      const before = full.slice(lineStart, offset).trim();
+      const after = full.slice(offset + match.length, lineEnd).trim();
+      if (!before && !after) return `$$\n${trimmed}\n$$`;
+      return `$${trimmed}$`;
+    },
+  );
+}
+
+/**
+ * Wrap bare `\\begin{env}...\\end{env}` in $$ when the model forgot fences.
+ * Must run AFTER normalizeMathDelimiters so `\\[...\\]` is already `$$...$$`
+ * — otherwise we double-fence and Streamdown parses empty math + raw body.
+ */
+function wrapBareLatexEnvironments(text: string): string {
+  return text.replace(
+    /\\begin\{([a-zA-Z*]+)\}[\s\S]*?\\end\{\1\}/g,
+    (match, _env: string, offset: number, full: string) => {
+      const prev = full.slice(Math.max(0, offset - 16), offset);
+      // Already fenced by $$ or \[ …
+      if (/\$\$\s*$/.test(prev) || /\\\[\s*$/.test(prev)) return match;
+      // Inside an open $$ pair from earlier in the message.
+      const fencesBefore = full.slice(0, offset).match(/\$\$/g)?.length ?? 0;
+      if (fencesBefore % 2 === 1) return match;
+      return `$$\n${match}\n$$`;
+    },
+  );
+}
+
+function preprocessMarkdownMath(text: string): string {
+  return escapeCurrencyDollars(
+    wrapBareLatexEnvironments(
+      normalizeMathDelimiters(rewriteBareBracketLatex(text)),
+    ),
+  );
+}
 
 type MarkdownTextProps = Partial<TextMessagePartProps> & {
   components?: StreamdownTextComponents;
@@ -62,7 +132,8 @@ const MarkdownTextImpl: FC<MarkdownTextProps> = ({
     <StreamdownTextPrimitive
       mode="streaming"
       className="aui-md"
-      plugins={{ code, cjk }}
+      plugins={{ code, cjk, math }}
+      preprocess={preprocessMarkdownMath}
       shikiTheme={["github-light", "github-dark"]}
       components={markdownComponents}
       componentsByLanguage={stableComponentsByLanguage}
@@ -171,7 +242,7 @@ const defaultComponents = {
   a: ({ className, ...props }) => (
     <a
       className={cn(
-        "aui-md-a text-primary hover:text-primary/80 underline underline-offset-2",
+        "aui-md-a text-blue-500 hover:text-blue-400 underline underline-offset-2",
         className,
       )}
       {...props}
@@ -287,3 +358,57 @@ const defaultComponents = {
   },
   CodeHeader,
 } as StreamdownTextComponents;
+
+/** Same styles without StreamdownTextPrimitive hooks (subsession / plain Streamdown). */
+const standaloneComponents = {
+  ...defaultComponents,
+  code: function StandaloneCode({ className, ...props }) {
+    const isCodeBlock =
+      typeof className === "string" && /\blanguage-/.test(className);
+    return (
+      <code
+        className={cn(
+          !isCodeBlock &&
+            "aui-md-inline-code bg-muted rounded-md px-1.5 py-0.5 font-mono text-[0.85em]",
+          className,
+        )}
+        {...props}
+      />
+    );
+  },
+} as StreamdownTextComponents;
+
+/** Standalone markdown (subsession / non–MessagePrimitive contexts). */
+const StandaloneMarkdownTextImpl: FC<{
+  text: string;
+  className?: string;
+  /** Word entrance — only while the reply is still streaming. */
+  animated?: boolean;
+}> = ({ text, className, animated = false }) => {
+  const content = useMemo(() => preprocessMarkdownMath(text), [text]);
+  return (
+    <Streamdown
+      className={cn("aui-md", className)}
+      plugins={{ code, cjk, math }}
+      shikiTheme={["github-light", "github-dark"]}
+      components={standaloneComponents}
+      controls={false}
+      // Hydrated / complete messages must NOT animate: Streamdown word
+      // entrance on a finished blob inflates block height into tens of kpx
+      // and buries the action footer below the sticky composer.
+      {...(animated
+        ? {
+            animated: {
+              animation: "fadeIn" as const,
+              duration: 150,
+              easing: "ease-out",
+            },
+          }
+        : { animated: false })}
+    >
+      {content}
+    </Streamdown>
+  );
+};
+
+export const StandaloneMarkdownText = memo(StandaloneMarkdownTextImpl);

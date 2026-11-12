@@ -22,13 +22,13 @@ import { useFixedMenuPosition } from "@/hooks/use-fixed-menu-position";
 import {
   COMPOSER_ASPECTS,
   COMPOSER_MODES,
-  COMPOSER_MODELS,
   useComposerPrefsStore,
   type ComposerAspectId,
   type ComposerModeId,
   type ComposerModelId,
 } from "@/lib/composer-prefs-store";
 import { useChatSessionsStore } from "@/lib/chat-sessions-store";
+import { useModelsStore } from "@/lib/models-store";
 import { useProjectsStore } from "@/lib/projects-store";
 
 const MODE_ICONS: Record<ComposerModeId, LucideIcon> = {
@@ -40,6 +40,7 @@ const MODE_ICONS: Record<ComposerModeId, LucideIcon> = {
   imagine: ImageIcon,
   slides: PresentationIcon,
   website: GlobeIcon,
+  research: SearchIcon,
 };
 
 function useSessionHasProject() {
@@ -70,6 +71,8 @@ function useApplyComposerMode() {
   const closeSlides = useProjectsStore((s) => s.closeSlides);
   const openBuild = useProjectsStore((s) => s.openBuild);
   const closeBuild = useProjectsStore((s) => s.closeBuild);
+  const openResearch = useProjectsStore((s) => s.openResearch);
+  const closeResearch = useProjectsStore((s) => s.closeResearch);
   const startNormalChat = useProjectsStore((s) => s.startNormalChat);
 
   const resetComposerThread = () => {
@@ -99,10 +102,16 @@ function useApplyComposerMode() {
       openBuild();
       return;
     }
+    if (next === "research") {
+      resetComposerThread();
+      openResearch();
+      return;
+    }
     // Auto / Flash / Search / Plan / Retrieve → leave special surfaces for New chat.
     closeImageGen();
     closeSlides();
     closeBuild();
+    closeResearch();
     resetComposerThread();
     startNormalChat();
   };
@@ -171,7 +180,11 @@ function ComposerMenu<T extends string>({
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const pos = useFixedMenuPosition(open, triggerRef);
+  // Composer sits at the bottom — open upward so the list stays on screen.
+  const pos = useFixedMenuPosition(open, triggerRef, {
+    prefer: "above",
+    estimatedHeight: Math.min(280, 44 + options.length * 40),
+  });
   const selected = options.find((option) => option.id === value) ?? options[0];
 
   useEffect(() => {
@@ -189,9 +202,13 @@ function ComposerMenu<T extends string>({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setOpen(false);
     };
-    window.addEventListener("pointerdown", onPointerDown);
+    // Defer so the opening click cannot immediately dismiss the menu.
+    const timer = window.setTimeout(() => {
+      window.addEventListener("pointerdown", onPointerDown);
+    }, 0);
     window.addEventListener("keydown", onKeyDown);
     return () => {
+      window.clearTimeout(timer);
       window.removeEventListener("pointerdown", onPointerDown);
       window.removeEventListener("keydown", onKeyDown);
     };
@@ -207,9 +224,10 @@ function ComposerMenu<T extends string>({
           style={{
             position: "fixed",
             top: pos.top,
+            bottom: pos.bottom,
             left: pos.left,
             minWidth: Math.max(pos.minWidth, 148),
-            zIndex: 80,
+            zIndex: 200,
           }}
           className="overflow-hidden rounded-xl border border-white/10 bg-[#1a1a1e] p-1 shadow-[0_12px_40px_rgba(0,0,0,0.45)]"
         >
@@ -264,7 +282,10 @@ function ComposerMenu<T extends string>({
                 open && "text-white",
               ),
         )}
-        onClick={() => setOpen((next) => !next)}
+        onClick={(event) => {
+          event.stopPropagation();
+          setOpen((next) => !next);
+        }}
       >
         <span className="min-w-0 truncate">{selected?.label}</span>
         <ChevronDownIcon
@@ -356,14 +377,17 @@ const ComposerModeCaption: FC = () => {
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const pos = useFixedMenuPosition(open, triggerRef);
+  const visibleModes = COMPOSER_MODES.filter(
+    (option) => option.id !== "retrieve" || hasProject,
+  );
+  const pos = useFixedMenuPosition(open, triggerRef, {
+    prefer: "above",
+    estimatedHeight: Math.min(320, 44 + visibleModes.length * 40),
+  });
   const modeLabel =
     COMPOSER_MODES.find((option) => option.id === mode)?.label ?? "Auto";
   const modeCaption = `${modeLabel.charAt(0).toUpperCase()}${modeLabel.slice(1)} Mode`;
   const ModeIcon = MODE_ICONS[mode] ?? InfinityIcon;
-  const visibleModes = COMPOSER_MODES.filter(
-    (option) => option.id !== "retrieve" || hasProject,
-  );
 
   useEffect(() => {
     setMounted(true);
@@ -380,9 +404,13 @@ const ComposerModeCaption: FC = () => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setOpen(false);
     };
-    window.addEventListener("pointerdown", onPointerDown);
+    // Defer so the opening click cannot immediately dismiss the menu.
+    const timer = window.setTimeout(() => {
+      window.addEventListener("pointerdown", onPointerDown);
+    }, 0);
     window.addEventListener("keydown", onKeyDown);
     return () => {
+      window.clearTimeout(timer);
       window.removeEventListener("pointerdown", onPointerDown);
       window.removeEventListener("keydown", onKeyDown);
     };
@@ -398,9 +426,10 @@ const ComposerModeCaption: FC = () => {
           style={{
             position: "fixed",
             top: pos.top,
+            bottom: pos.bottom,
             left: pos.left,
             minWidth: Math.max(pos.minWidth, 168),
-            zIndex: 80,
+            zIndex: 200,
           }}
           className="overflow-hidden rounded-xl border border-white/10 bg-[#1a1a1e] p-1 shadow-[0_12px_40px_rgba(0,0,0,0.45)]"
         >
@@ -432,7 +461,10 @@ const ComposerModeCaption: FC = () => {
           "inline-flex h-7 max-w-32 shrink-0 items-center gap-2 truncate px-0.5 text-xs font-medium transition-colors hover:text-zinc-200",
           lit ? "text-zinc-100" : "text-zinc-400",
         )}
-        onClick={() => setOpen((next) => !next)}
+        onClick={(event) => {
+          event.stopPropagation();
+          setOpen((next) => !next);
+        }}
       >
         <ModeIcon
           className={cn(
@@ -459,7 +491,10 @@ export const ComposerAspectPicker: FC = () => {
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const pos = useFixedMenuPosition(open, triggerRef);
+  const pos = useFixedMenuPosition(open, triggerRef, {
+    prefer: "above",
+    estimatedHeight: Math.min(320, 44 + COMPOSER_ASPECTS.length * 40),
+  });
   const selected =
     COMPOSER_ASPECTS.find((option) => option.id === aspect) ??
     COMPOSER_ASPECTS[0];
@@ -479,9 +514,13 @@ export const ComposerAspectPicker: FC = () => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setOpen(false);
     };
-    window.addEventListener("pointerdown", onPointerDown);
+    // Defer so the opening click cannot immediately dismiss the menu.
+    const timer = window.setTimeout(() => {
+      window.addEventListener("pointerdown", onPointerDown);
+    }, 0);
     window.addEventListener("keydown", onKeyDown);
     return () => {
+      window.clearTimeout(timer);
       window.removeEventListener("pointerdown", onPointerDown);
       window.removeEventListener("keydown", onKeyDown);
     };
@@ -497,9 +536,10 @@ export const ComposerAspectPicker: FC = () => {
           style={{
             position: "fixed",
             top: pos.top,
+            bottom: pos.bottom,
             left: pos.left,
             minWidth: Math.max(pos.minWidth, 148),
-            zIndex: 80,
+            zIndex: 200,
           }}
           className="overflow-hidden rounded-xl border border-white/10 bg-[#1a1a1e] p-1 shadow-[0_12px_40px_rgba(0,0,0,0.45)]"
         >
@@ -547,7 +587,10 @@ export const ComposerAspectPicker: FC = () => {
           "inline-flex h-7 max-w-40 items-center gap-1.5 px-0.5 text-sm font-medium text-zinc-300 transition-colors hover:text-white",
           open && "text-white",
         )}
-        onClick={() => setOpen((next) => !next)}
+        onClick={(event) => {
+          event.stopPropagation();
+          setOpen((next) => !next);
+        }}
       >
         <AspectFrameIcon
           id={selected?.id ?? "1:1"}
@@ -561,10 +604,19 @@ export const ComposerAspectPicker: FC = () => {
 };
 
 /** Model picker — right of composer actions, before send. Plain text, no pill. */
-export const ComposerModelPicker: FC = () => {
-  const model = useComposerPrefsStore((s) => s.model);
+export const ComposerModelPicker: FC<{
+  /** Main and subsession keep independent model prefs. */
+  scope?: "main" | "subsession";
+}> = ({ scope = "main" }) => {
+  const mainModel = useComposerPrefsStore((s) => s.model);
+  const subsessionModel = useComposerPrefsStore((s) => s.subsessionModel);
   const setModel = useComposerPrefsStore((s) => s.setModel);
+  const setSubsessionModel = useComposerPrefsStore((s) => s.setSubsessionModel);
   const mode = useComposerPrefsStore((s) => s.mode);
+  const modelOptions = useModelsStore((s) => s.options);
+  const model = scope === "subsession" ? subsessionModel : mainModel;
+  const onChange =
+    scope === "subsession" ? setSubsessionModel : setModel;
   // Imagine has its own page chrome — don't repeat "Imagine Mode" beside model.
   // Slides keeps the caption so "Slides Mode" stays visible / selectable.
   const showModeCaption = mode !== "imagine";
@@ -576,9 +628,9 @@ export const ComposerModelPicker: FC = () => {
       {showAspect ? <ComposerAspectPicker /> : null}
       <ComposerMenu<ComposerModelId>
         value={model}
-        options={COMPOSER_MODELS}
+        options={modelOptions}
         ariaLabel="Select model"
-        onChange={setModel}
+        onChange={onChange}
         variant="plain"
       />
     </div>

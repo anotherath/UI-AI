@@ -1,8 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { SearchIcon, XIcon } from "lucide-react";
-import { useAui, useAuiState } from "@assistant-ui/react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import {
+  MessageSquareIcon,
+  SearchIcon,
+  SearchXIcon,
+  XIcon,
+} from "lucide-react";
+import { useAui } from "@assistant-ui/react";
 import {
   Dialog,
   DialogClose,
@@ -11,6 +22,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import {
+  CHAT_SESSION_SEARCH_MIN_Q,
+  searchChatSessions,
+  type ChatSession,
+  type ChatSessionSearchHit,
+} from "@/lib/chat-api";
+import { useChatSessionsStore } from "@/lib/chat-sessions-store";
+import { useComposerPrefsStore } from "@/lib/composer-prefs-store";
+import { openBackendChatSession } from "@/lib/open-chat-session";
+import { useProjectsStore } from "@/lib/projects-store";
 import { cn } from "@/lib/utils";
 
 type ThreadSearchDialogProps = {
@@ -18,8 +39,72 @@ type ThreadSearchDialogProps = {
   onOpenChange: (open: boolean) => void;
 };
 
-function formatRelative(date: Date | undefined, now = new Date()): string {
-  if (!date || Number.isNaN(date.getTime())) return "";
+type SearchRow = {
+  id: string;
+  session: ChatSession;
+  title: string;
+  when: string;
+  snippet?: string;
+  matchIn?: "title" | "message";
+};
+
+/** Three bouncing dots — search loading indicator. */
+function BouncingDots({ className }: { className?: string }) {
+  return (
+    <span
+      className={cn("inline-flex items-center justify-center gap-1.5", className)}
+      aria-hidden
+    >
+      <span className="size-1.5 rounded-full bg-zinc-500 animate-bounce [animation-duration:0.7s]" />
+      <span className="size-1.5 rounded-full bg-zinc-500 animate-bounce [animation-duration:0.7s] [animation-delay:120ms]" />
+      <span className="size-1.5 rounded-full bg-zinc-500 animate-bounce [animation-duration:0.7s] [animation-delay:240ms]" />
+    </span>
+  );
+}
+
+/** Split `text` and paint query matches in blue. */
+function HighlightedText({
+  text,
+  query,
+  className,
+}: {
+  text: string;
+  query: string;
+  className?: string;
+}) {
+  const needle = query.trim();
+  if (!needle) {
+    return <span className={className}>{text}</span>;
+  }
+
+  const lower = text.toLowerCase();
+  const q = needle.toLowerCase();
+  const parts: ReactNode[] = [];
+  let cursor = 0;
+  let key = 0;
+
+  while (cursor < text.length) {
+    const at = lower.indexOf(q, cursor);
+    if (at === -1) {
+      parts.push(text.slice(cursor));
+      break;
+    }
+    if (at > cursor) parts.push(text.slice(cursor, at));
+    parts.push(
+      <span key={`h-${key++}`} className="text-blue-500">
+        {text.slice(at, at + needle.length)}
+      </span>,
+    );
+    cursor = at + needle.length;
+  }
+
+  return <span className={className}>{parts}</span>;
+}
+
+function formatRelative(iso: string | null | undefined, now = new Date()): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
 
   const startOfToday = new Date(
     now.getFullYear(),
@@ -44,43 +129,62 @@ function formatRelative(date: Date | undefined, now = new Date()): string {
   return `${years}y`;
 }
 
+function sessionToRow(session: ChatSession): SearchRow {
+  return {
+    id: session.id,
+    session,
+    title: session.title?.trim() || "New Chat",
+    when: formatRelative(session.last_message_at || session.updated_at),
+  };
+}
+
+function hitToRow(hit: ChatSessionSearchHit): SearchRow {
+  const base = sessionToRow(hit.session);
+  const snippet = hit.snippet.trim();
+  // Message hits: show content preview under the title.
+  // Title hits: snippet === title — skip the redundant second line.
+  return {
+    ...base,
+    matchIn: hit.match_in,
+    snippet:
+      hit.match_in === "message" && snippet.length > 0 ? snippet : undefined,
+  };
+}
+
 export function ThreadSearchDialog({
   open,
   onOpenChange,
 }: ThreadSearchDialogProps) {
   const aui = useAui();
-  const threadIds = useAuiState((s) => s.threads.threadIds);
-  const threadItems = useAuiState((s) => s.threads.threadItems);
+  const sessions = useChatSessionsStore((s) => s.sessions);
+  const openChatFromChats = useProjectsStore((s) => s.openChatFromChats);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  const [hits, setHits] = useState<ChatSessionSearchHit[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const requestIdRef = useRef(0);
+
+  const trimmed = query.trim();
+  const canSearch = trimmed.length >= CHAT_SESSION_SEARCH_MIN_Q;
+
+  const recentRows = useMemo(
+    () => sessions.slice(0, 8).map(sessionToRow),
+    [sessions],
+  );
 
   const results = useMemo(() => {
-    const itemsById = new Map(threadItems.map((item) => [item.id, item]));
-    const q = query.trim().toLowerCase();
-    const mapped = threadIds.map((id) => {
-      const item = itemsById.get(id);
-      return {
-        id,
-        title: item?.title?.trim() || "New Chat",
-        lastMessageAt: item?.lastMessageAt,
-      };
-    });
-
-    const filtered = mapped.filter(
-      (item) => !q || item.title.toLowerCase().includes(q),
-    );
-
-    return [...filtered].sort((a, b) => {
-      const ta = a.lastMessageAt?.getTime() ?? 0;
-      const tb = b.lastMessageAt?.getTime() ?? 0;
-      return tb - ta;
-    });
-  }, [threadIds, threadItems, query]);
+    if (!canSearch) return recentRows;
+    return hits.map(hitToRow);
+  }, [canSearch, hits, recentRows]);
 
   useEffect(() => {
     if (!open) return;
     setQuery("");
+    setHits([]);
+    setSearchError(null);
+    setSearching(false);
     setActiveIndex(0);
     const id = window.requestAnimationFrame(() => inputRef.current?.focus());
     return () => window.cancelAnimationFrame(id);
@@ -88,31 +192,94 @@ export function ThreadSearchDialog({
 
   useEffect(() => {
     setActiveIndex(0);
-  }, [query]);
+  }, [query, results.length]);
 
-  const selectThread = (threadId: string) => {
-    aui.threads.switchToThread(threadId);
+  useEffect(() => {
+    if (!open) return;
+    if (!canSearch) {
+      setHits([]);
+      setSearchError(null);
+      setSearching(false);
+      return;
+    }
+
+    const requestId = ++requestIdRef.current;
+    setSearching(true);
+    setSearchError(null);
+    setHits([]);
+    const timer = window.setTimeout(() => {
+      void searchChatSessions({ q: trimmed, scope: "all", limit: 30 })
+        .then((page) => {
+          if (requestId !== requestIdRef.current) return;
+          setHits(page.items);
+          setSearching(false);
+        })
+        .catch((error) => {
+          if (requestId !== requestIdRef.current) return;
+          setHits([]);
+          setSearching(false);
+          setSearchError(
+            error instanceof Error ? error.message : "Search failed",
+          );
+        });
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [open, canSearch, trimmed]);
+
+  const selectSession = (session: ChatSession) => {
+    useComposerPrefsStore.getState().setMode("auto");
+    useChatSessionsStore.getState().beginOpeningSession(session.id);
+    openChatFromChats(session.project_id);
     onOpenChange(false);
+    void openBackendChatSession(aui, session).catch(() => {
+      // Error already stored in openError for the thread banner.
+    });
   };
 
-  const searching = query.trim().length > 0;
+  const emptyState = canSearch
+    ? searching
+      ? {
+          icon: <BouncingDots className="scale-125" />,
+          label: "Searching",
+        }
+      : searchError
+        ? {
+            icon: <SearchXIcon className="size-8 stroke-[1.5]" />,
+            label: searchError,
+          }
+        : {
+            icon: <SearchXIcon className="size-8 stroke-[1.5]" />,
+            label: "No chats found",
+          }
+    : trimmed.length > 0
+      ? {
+          icon: <SearchIcon className="size-8 stroke-[1.5]" />,
+          label: `Type at least ${CHAT_SESSION_SEARCH_MIN_Q} characters`,
+        }
+      : {
+          icon: <MessageSquareIcon className="size-8 stroke-[1.5]" />,
+          label: "No chats yet",
+        };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
-        overlayClassName="bg-black/55"
+        overlayClassName="bg-black/60 backdrop-blur-[2px]"
         className={cn(
-          "flex h-[min(68vh,32rem)] w-[min(100%-2rem,28rem)] max-w-none -translate-x-1/2 -translate-y-1/2 flex-col gap-0 overflow-hidden rounded-2xl border border-white/5 bg-[#0e0e10] p-0 text-zinc-100 shadow-[0_24px_80px_rgba(0,0,0,0.55)] ring-0 sm:max-w-none",
+          "flex h-[min(74vh,38rem)] w-[min(100%-2rem,36rem)] max-w-none -translate-x-1/2 -translate-y-1/2 flex-col gap-0 overflow-hidden rounded-3xl border border-white/8 bg-[#121214] p-0 text-zinc-100 shadow-[0_32px_100px_rgba(0,0,0,0.65)] ring-0 sm:max-w-none",
         )}
       >
         <DialogTitle className="sr-only">Search chats</DialogTitle>
         <DialogDescription className="sr-only">
-          Find and open a recent conversation
+          Find and open a conversation by title or message content
         </DialogDescription>
 
-        <div className="flex shrink-0 items-center gap-2 px-3 pt-3 pb-2">
-          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-white/10 bg-[#17171b] px-3">
+        <div className="flex shrink-0 items-center gap-2.5 border-b border-white/5 px-4 pt-4 pb-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2.5 rounded-2xl border border-white/10 bg-[#1c1c21] px-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-[border-color] focus-within:border-white/20">
             <SearchIcon className="size-4 shrink-0 text-zinc-500" />
             <input
               ref={inputRef}
@@ -120,7 +287,7 @@ export function ThreadSearchDialog({
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search chats"
               aria-label="Search chats"
-              className="h-10 w-full bg-transparent text-sm text-zinc-100 outline-none placeholder:text-zinc-500"
+              className="h-11 w-full bg-transparent text-[15px] text-zinc-100 outline-none placeholder:text-zinc-500"
               onKeyDown={(event) => {
                 if (event.nativeEvent.isComposing) return;
                 if (event.key === "ArrowDown") {
@@ -136,7 +303,7 @@ export function ThreadSearchDialog({
                 } else if (event.key === "Enter") {
                   event.preventDefault();
                   const target = results[activeIndex];
-                  if (target) selectThread(target.id);
+                  if (target) selectSession(target.session);
                 }
               }}
             />
@@ -146,7 +313,7 @@ export function ThreadSearchDialog({
               <Button
                 variant="ghost"
                 size="icon"
-                className="size-8 shrink-0 rounded-lg text-zinc-500 hover:bg-white/10 hover:text-zinc-200"
+                className="size-9 shrink-0 rounded-xl text-zinc-500 hover:bg-white/10 hover:text-zinc-200"
               />
             }
           >
@@ -155,20 +322,35 @@ export function ThreadSearchDialog({
           </DialogClose>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-3">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3">
           {results.length === 0 ? (
-            <div className="flex h-full min-h-32 items-center justify-center px-3 text-sm text-zinc-500">
-              {searching ? "No chats found" : "No chats yet"}
+            <div
+              className="flex h-full min-h-40 flex-col items-center justify-center gap-2 px-4 text-zinc-600"
+              role="status"
+              aria-label={emptyState.label}
+            >
+              {emptyState.icon}
+              <span className="sr-only">{emptyState.label}</span>
             </div>
           ) : (
             <>
-              <div className="px-2.5 pb-1.5 pt-1 text-xs font-medium tracking-wide text-zinc-500 uppercase">
-                {searching ? "Results" : "Recent"}
+              <div className="flex items-center gap-2 px-3 pb-2 pt-0.5 text-[11px] font-medium tracking-[0.08em] text-zinc-500 uppercase">
+                {canSearch ? (
+                  searching ? (
+                    <>
+                      <span className="sr-only">Searching</span>
+                      <BouncingDots />
+                    </>
+                  ) : (
+                    "Results"
+                  )
+                ) : (
+                  "Recent"
+                )}
               </div>
-              <ul className="flex flex-col gap-0.5" role="listbox">
+              <ul className="flex flex-col gap-1" role="listbox">
                 {results.map((item, index) => {
                   const active = index === activeIndex;
-                  const when = formatRelative(item.lastMessageAt);
                   return (
                     <li key={item.id}>
                       <button
@@ -176,21 +358,32 @@ export function ThreadSearchDialog({
                         role="option"
                         aria-selected={active}
                         className={cn(
-                          "flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-left text-sm transition-colors",
+                          "flex w-full flex-col gap-1 rounded-xl px-3 py-2.5 text-left transition-colors",
                           active
-                            ? "bg-muted text-zinc-100"
-                            : "text-zinc-300 hover:bg-muted hover:text-zinc-100",
+                            ? "bg-white/8 text-zinc-100"
+                            : "text-zinc-300 hover:bg-white/5 hover:text-zinc-100",
                         )}
                         onMouseEnter={() => setActiveIndex(index)}
-                        onClick={() => selectThread(item.id)}
+                        onClick={() => selectSession(item.session)}
                       >
-                        <span className="min-w-0 flex-1 truncate">
-                          {item.title}
+                        <span className="flex w-full items-center gap-3">
+                          <HighlightedText
+                            text={item.title}
+                            query={canSearch ? trimmed : ""}
+                            className="min-w-0 flex-1 truncate text-[15px] leading-snug"
+                          />
+                          {item.when ? (
+                            <span className="shrink-0 text-xs tabular-nums text-zinc-500">
+                              {item.when}
+                            </span>
+                          ) : null}
                         </span>
-                        {when ? (
-                          <span className="shrink-0 text-xs text-zinc-500">
-                            {when}
-                          </span>
+                        {item.snippet ? (
+                          <HighlightedText
+                            text={item.snippet}
+                            query={canSearch ? trimmed : ""}
+                            className="line-clamp-2 text-[13px] leading-snug text-zinc-500"
+                          />
                         ) : null}
                       </button>
                     </li>

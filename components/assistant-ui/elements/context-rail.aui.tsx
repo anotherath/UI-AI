@@ -1,11 +1,13 @@
 "use client";
 
 import {
+  Fragment,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type CSSProperties,
   type FC,
   type PointerEvent as ReactPointerEvent,
@@ -14,27 +16,37 @@ import { createPortal } from "react-dom";
 import {
   AlignJustifyIcon,
   ArrowUpIcon,
+  CheckIcon,
+  CopyIcon,
   FileTextIcon,
   FolderIcon,
   FolderOpenIcon,
   GitBranchIcon,
   MessageSquareIcon,
   MoreHorizontalIcon,
-  PaperclipIcon,
   PencilIcon,
   PenLineIcon,
+  PlusIcon,
   PinIcon,
+  PinOffIcon,
+  RefreshCwIcon,
   SquareIcon,
   TrashIcon,
   XIcon,
 } from "lucide-react";
 import { useAuiState } from "@assistant-ui/react";
+import { ComposerModelPicker } from "@/components/assistant-ui/elements/composer-mode-model.aui";
+import {
+  flushInlineComposerDraft,
+  InlineChipComposerInput,
+  requestSelectionChipInsert,
+} from "@/components/assistant-ui/elements/inline-chip-composer-input";
+import { StandaloneMarkdownText } from "@/components/assistant-ui/elements/markdown-text";
 import { TooltipIconButton } from "@/components/assistant-ui/elements/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import {
-  formatSelectionDirective,
   SelectionAwareText,
-  selectionDirectiveLabel,
 } from "@/components/assistant-ui/elements/selection-chip";
 import { useFixedMenuPosition } from "@/hooks/use-fixed-menu-position";
 import {
@@ -46,7 +58,12 @@ import {
   type ContextRailPanel,
   type ContextRailPanelId,
 } from "@/lib/context-rail-store";
-import { streamSubsessionReply } from "@/lib/subsession-chat";
+import { useAgentRunStatusStore } from "@/lib/agent-run-status-store";
+import {
+  abortSubsessionStream,
+  hydrateOrResumeSubsession,
+  runSubsessionTurn,
+} from "@/lib/subsession-chat";
 import type { Subsession } from "@/lib/subsessions-store";
 import { useNotesStore } from "@/lib/notes-store";
 import {
@@ -384,6 +401,45 @@ function subsessionTitle(item: Subsession) {
   return firstUser.content.replace(/\s+/g, " ").trim().slice(0, 72);
 }
 
+function subsessionDateLabel(
+  createdAt: number,
+  startOfToday: number,
+  startOfYesterday: number,
+): string {
+  if (!(createdAt > 0)) return "Earlier";
+  if (createdAt >= startOfToday) return "Today";
+  if (createdAt >= startOfYesterday) return "Yesterday";
+  return "Earlier";
+}
+
+const startOfLocalDay = (date: Date) =>
+  new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+
+const subscribeToNextDay = (onDayChange: () => void) => {
+  let timeout: number;
+  const scheduleNextDay = () => {
+    const now = new Date();
+    const startOfTomorrow = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() + 1,
+    ).getTime();
+    timeout = window.setTimeout(() => {
+      onDayChange();
+      scheduleNextDay();
+    }, startOfTomorrow - now.getTime());
+  };
+  scheduleNextDay();
+  return () => window.clearTimeout(timeout);
+};
+
+const useStartOfToday = () =>
+  useSyncExternalStore(
+    subscribeToNextDay,
+    () => startOfLocalDay(new Date()),
+    () => undefined as number | undefined,
+  );
+
 function SubsessionListItemMore({
   onRename,
   onDelete,
@@ -502,26 +558,67 @@ function SubsessionListItemMore({
 function SubsessionListBody() {
   const mainThreadId = useAuiState((s) => s.threads.mainThreadId);
   const byId = useSubsessionsStore((s) => s.byId);
+  const syncForParent = useSubsessionsStore((s) => s.syncForParent);
+  const isSyncing = useSubsessionsStore((s) => s.isSyncing);
   const setActive = useSubsessionsStore((s) => s.setActive);
   const togglePinned = useSubsessionsStore((s) => s.togglePinned);
   const rename = useSubsessionsStore((s) => s.rename);
   const remove = useSubsessionsStore((s) => s.remove);
   const setPanel = useContextRailStore((s) => s.setPanel);
+  const startOfToday = useStartOfToday();
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const renameRef = useRef<HTMLInputElement>(null);
 
-  const items = useMemo(() => {
+  useEffect(() => {
+    if (!mainThreadId) return;
+    void syncForParent(mainThreadId);
+  }, [mainThreadId, syncForParent]);
+
+  const groups = useMemo(() => {
     if (!mainThreadId) return [];
-    return Object.values(byId)
-      .filter((item) => item.parentThreadId === mainThreadId)
+    const filtered = Object.values(byId)
+      .filter(
+        (item) => item.parentThreadId === mainThreadId && !item.isDraft,
+      )
       .sort((a, b) => {
         if (Boolean(a.pinned) !== Boolean(b.pinned)) {
           return a.pinned ? -1 : 1;
         }
         return b.createdAt - a.createdAt;
       });
-  }, [byId, mainThreadId]);
+
+    if (startOfToday === undefined) {
+      return [{ label: null as string | null, items: filtered }];
+    }
+
+    const yesterday = new Date(startOfToday);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const startOfYesterday = yesterday.getTime();
+
+    const next: { label: string | null; items: Subsession[] }[] = [];
+    const pinned = filtered.filter((item) => item.pinned);
+    const unpinned = filtered.filter((item) => !item.pinned);
+    if (pinned.length > 0) next.push({ label: "Pinned", items: pinned });
+
+    for (const item of unpinned) {
+      const label = subsessionDateLabel(
+        item.createdAt,
+        startOfToday,
+        startOfYesterday,
+      );
+      const last = next[next.length - 1];
+      if (last?.label === label) last.items.push(item);
+      else next.push({ label, items: [item] });
+    }
+
+    return next;
+  }, [byId, mainThreadId, startOfToday]);
+
+  const itemCount = useMemo(
+    () => groups.reduce((sum, group) => sum + group.items.length, 0),
+    [groups],
+  );
 
   useEffect(() => {
     if (!renamingId) return;
@@ -534,15 +631,15 @@ function SubsessionListBody() {
 
   const commitRename = () => {
     if (!renamingId) return;
-    rename(renamingId, renameValue);
+    void rename(renamingId, renameValue);
     setRenamingId(null);
   };
 
-  if (items.length === 0) {
+  if (itemCount === 0) {
     return (
       <div
         className="flex min-h-0 flex-1 flex-col items-center justify-center px-4 pb-10"
-        aria-label="No subsessions"
+        aria-label={isSyncing ? "Loading subsessions" : "No subsessions"}
       >
         <GitBranchIcon
           className="size-10 stroke-[1.25] text-zinc-600"
@@ -555,107 +652,207 @@ function SubsessionListBody() {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-1 pb-4">
       <ul className="flex flex-col gap-0.5" aria-label="Subsession list">
-        {items.map((item) => {
-          const preview = subsessionTitle(item);
-          const pinned = Boolean(item.pinned);
-          const isRenaming = renamingId === item.id;
+        {groups.map((group, groupIndex) => (
+          <Fragment key={`${group.label ?? "all"}-${groupIndex}`}>
+            {group.label ? (
+              <li
+                className="text-muted-foreground px-2.5 pt-3 pb-1 text-xs font-medium"
+                aria-hidden={false}
+              >
+                {group.label}
+              </li>
+            ) : null}
+            {group.items.map((item) => {
+              const preview = subsessionTitle(item);
+              const pinned = Boolean(item.pinned);
+              const isRenaming = renamingId === item.id;
 
-          return (
-            <li
-              key={item.id}
-              className="group/subsession relative flex h-8 items-center rounded-md bg-transparent transition-colors hover:bg-muted"
-            >
-              {isRenaming ? (
-                <input
-                  ref={renameRef}
-                  aria-label="Rename subsession"
-                  value={renameValue}
-                  onChange={(event) => setRenameValue(event.target.value)}
-                  onBlur={commitRename}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      commitRename();
-                    } else if (event.key === "Escape") {
-                      event.preventDefault();
-                      setRenamingId(null);
-                    }
-                  }}
-                  className="h-7 min-w-0 flex-1 rounded-md bg-transparent px-2.5 text-sm text-zinc-100 outline-none"
-                />
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActive(item.id);
-                    setPanel("subsession-chat");
-                  }}
-                  className="flex h-full min-w-0 flex-1 items-center rounded-md px-2.5 text-start text-sm outline-none group-hover/subsession:pe-16 group-has-data-[state=open]/subsession:pe-16"
+              return (
+                <li
+                  key={item.id}
+                  className="group/subsession relative flex h-8 items-center rounded-md bg-transparent transition-colors hover:bg-muted"
                 >
-                  <span className="min-w-0 flex-1 truncate text-zinc-100">
-                    {preview}
-                  </span>
-                </button>
-              )}
-              {!isRenaming ? (
-                <>
-                  <button
-                    type="button"
-                    aria-label={pinned ? "Unpin subsession" : "Pin subsession"}
-                    aria-pressed={pinned}
-                    className={cn(
-                      "absolute end-8 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md p-0 text-zinc-500 transition-opacity hover:bg-white/10 hover:text-zinc-200",
-                      pinned
-                        ? "opacity-100 text-zinc-200"
-                        : "pointer-events-none opacity-0 group-hover/subsession:pointer-events-auto group-hover/subsession:opacity-100",
-                    )}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      togglePinned(item.id);
-                    }}
-                  >
-                    <PinIcon
-                      className={cn("size-3.5", pinned && "fill-current")}
+                  {isRenaming ? (
+                    <input
+                      ref={renameRef}
+                      aria-label="Rename subsession"
+                      value={renameValue}
+                      onChange={(event) => setRenameValue(event.target.value)}
+                      onBlur={commitRename}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          commitRename();
+                        } else if (event.key === "Escape") {
+                          event.preventDefault();
+                          setRenamingId(null);
+                        }
+                      }}
+                      className="h-7 min-w-0 flex-1 rounded-md bg-transparent px-2.5 text-sm text-zinc-100 outline-none"
                     />
-                  </button>
-                  <SubsessionListItemMore
-                    onRename={() => {
-                      setRenameValue(preview);
-                      setRenamingId(item.id);
-                    }}
-                    onDelete={() => remove(item.id)}
-                  />
-                </>
-              ) : null}
-            </li>
-          );
-        })}
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActive(item.id);
+                        setPanel("subsession-chat");
+                      }}
+                      className="flex h-full min-w-0 flex-1 items-center rounded-md px-2.5 text-start text-sm outline-none group-hover/subsession:pe-16 group-has-data-[state=open]/subsession:pe-16"
+                    >
+                      <span className="min-w-0 flex-1 truncate text-zinc-100">
+                        {preview}
+                      </span>
+                    </button>
+                  )}
+                  {!isRenaming ? (
+                    <>
+                      <TooltipIconButton
+                        tooltip={pinned ? "Unpin" : "Pin"}
+                        side="bottom"
+                        type="button"
+                        aria-label={
+                          pinned ? "Unpin subsession" : "Pin subsession"
+                        }
+                        aria-pressed={pinned}
+                        className="pointer-events-none absolute end-8 top-1/2 size-6 -translate-y-1/2 rounded-md p-0 text-zinc-500 opacity-0 transition-opacity hover:bg-white/10 hover:text-zinc-300 group-hover/subsession:pointer-events-auto group-hover/subsession:opacity-100"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          togglePinned(item.id);
+                        }}
+                      >
+                        {pinned ? (
+                          <PinOffIcon className="size-3.5" />
+                        ) : (
+                          <PinIcon className="size-3.5" />
+                        )}
+                      </TooltipIconButton>
+                      <SubsessionListItemMore
+                        onRename={() => {
+                          setRenameValue(preview);
+                          setRenamingId(item.id);
+                        }}
+                        onDelete={() => {
+                          void remove(item.id);
+                        }}
+                      />
+                    </>
+                  ) : null}
+                </li>
+              );
+            })}
+          </Fragment>
+        ))}
       </ul>
     </div>
   );
 }
 
-function threadPartText(
-  message: {
-    role: string;
-    id: string;
-    content: ReadonlyArray<{ type: string; text?: string }>;
-  },
-): { id: string; role: "user" | "assistant"; content: string } | null {
-  if (message.role !== "user" && message.role !== "assistant") return null;
-  const content = message.content
-    .filter(
-      (part): part is { type: "text"; text: string } =>
-        part.type === "text" && typeof part.text === "string",
-    )
-    .map((part) => part.text)
-    .join("");
-  if (!content.trim()) return null;
-  return {
-    id: message.id,
-    role: message.role,
-    content,
-  };
+function SubsessionCopyButton({
+  text,
+  className,
+}: {
+  text: string;
+  className?: string;
+}) {
+  const { isCopied, copyToClipboard } = useCopyToClipboard();
+  return (
+    <TooltipIconButton
+      tooltip={isCopied ? "Copied" : "Copy"}
+      side="top"
+      type="button"
+      aria-label="Copy"
+      className={cn(
+        "aui-user-action-copy size-7 rounded-lg text-zinc-400 hover:bg-white/10 hover:text-zinc-100",
+        className,
+      )}
+      onClick={() => {
+        if (!text || isCopied) return;
+        copyToClipboard(text);
+      }}
+    >
+      {isCopied ? (
+        <CheckIcon
+          className="size-3.5 animate-in zoom-in-50 fade-in duration-200 ease-out"
+          aria-hidden
+        />
+      ) : (
+        <CopyIcon
+          className="size-3.5 animate-in zoom-in-75 fade-in duration-150"
+          aria-hidden
+        />
+      )}
+    </TooltipIconButton>
+  );
+}
+
+function SubsessionRunIndicator({
+  runKey,
+  label,
+}: {
+  runKey: string;
+  label: string;
+}) {
+  const startedAt = useAgentRunStatusStore(
+    (s) => s.startedAtByThreadId[runKey],
+  );
+  const isTerminal = label === "Done";
+  const [elapsedMs, setElapsedMs] = useState(0);
+
+  useEffect(() => {
+    if (!startedAt) {
+      setElapsedMs(0);
+      return;
+    }
+    const tick = () => setElapsedMs(Math.max(0, Date.now() - startedAt));
+    tick();
+    if (isTerminal) return;
+    const id = window.setInterval(tick, 50);
+    return () => window.clearInterval(id);
+  }, [startedAt, isTerminal]);
+
+  return (
+    <div
+      data-slot="aui_assistant-message-indicator"
+      className="mb-1.5 flex min-h-8 w-full items-center gap-2.5 font-sans text-[15px] font-medium leading-snug tracking-tight text-zinc-300"
+      aria-label={
+        startedAt == null ? label : `${label} ${elapsedMs}ms`
+      }
+      role="status"
+    >
+      {!isTerminal ? (
+        <span className="inline-flex items-center gap-1.5" aria-hidden>
+          <span className="size-1.5 animate-pulse rounded-full bg-zinc-400" />
+          <span className="size-1.5 animate-pulse rounded-full bg-zinc-400 [animation-delay:150ms]" />
+          <span className="size-1.5 animate-pulse rounded-full bg-zinc-400 [animation-delay:300ms]" />
+        </span>
+      ) : (
+        <span
+          className="size-1.5 shrink-0 rounded-full bg-zinc-600"
+          aria-hidden
+        />
+      )}
+      <span
+        key={label}
+        className={cn(
+          "min-w-0 fade-in slide-in-from-left-1 animate-in fill-mode-both duration-200",
+          isTerminal ? "text-zinc-500" : "text-zinc-300",
+          !isTerminal && "shimmer motion-reduce:animate-none",
+        )}
+      >
+        {label}
+      </span>
+      {startedAt != null ? (
+        <span
+          className={cn(
+            "ms-auto shrink-0 tabular-nums text-xs font-normal tracking-normal",
+            isTerminal ? "text-zinc-600" : "text-zinc-500",
+          )}
+        >
+          {elapsedMs}ms
+        </span>
+      ) : null}
+    </div>
+  );
 }
 
 function SubsessionChatBody() {
@@ -670,131 +867,89 @@ function SubsessionChatBody() {
   const clearReplyQueue = useSubsessionsStore((s) => s.clearReplyQueue);
   const setActive = useSubsessionsStore((s) => s.setActive);
   const setPanel = useContextRailStore((s) => s.setPanel);
-  const parentMessages = useAuiState((s) => s.thread.messages);
   const subsession = activeId ? byId[activeId] : null;
   const forkMessages = subsession?.messages ?? [];
   const isEmpty = forkMessages.length === 0;
   const isStreaming = forkMessages.some(
     (message) => message.status === "streaming",
   );
+  const lastAssistantId = [...forkMessages]
+    .reverse()
+    .find((message) => message.role === "assistant")?.id;
   const [draft, setDraft] = useState("");
+  const [clearToken, setClearToken] = useState(0);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLTextAreaElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
-  const abortRef = useRef<AbortController | null>(null);
-  const canSend = Boolean(draft.trim() || pendingQuote) && !isStreaming;
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
+  const canSend = Boolean(draft.trim()) && !isStreaming;
   const messageCount = forkMessages.length;
-  const lastContent =
+  const lastContentLen =
     forkMessages[forkMessages.length - 1]?.content.length ?? 0;
+  const messagesLoaded = Boolean(subsession?.messagesLoaded);
 
-  const buildHistory = useCallback(
-    (forkTurns: typeof forkMessages, assistantId?: string) => {
-      const forkAtCount = subsession?.forkAtCount ?? 0;
-      const inherited = parentMessages
-        .slice(0, forkAtCount)
-        .map(threadPartText)
-        .filter(
-          (
-            turn,
-          ): turn is {
-            id: string;
-            role: "user" | "assistant";
-            content: string;
-          } => turn !== null,
-        );
-      const local = forkTurns
-        .filter((message) => message.id !== assistantId)
-        .map((message) => ({
-          id: message.id,
-          role: message.role,
-          content: message.content,
-        }));
-      return [...inherited, ...local];
+  const runTurn = useCallback(
+    (
+      subsessionId: string,
+      content: string,
+      options?: { editMessageId?: string },
+    ) => {
+      stickToBottomRef.current = true;
+      void runSubsessionTurn(subsessionId, content, options);
     },
-    [parentMessages, subsession?.forkAtCount],
+    [],
   );
 
-  const runAssistant = useCallback(
-    async (subsessionId: string) => {
-      abortRef.current?.abort();
-      const controller = new AbortController();
-      abortRef.current = controller;
-
-      const assistantId = crypto.randomUUID();
-      appendMessage(subsessionId, {
-        id: assistantId,
-        role: "assistant",
-        content: "",
-        status: "streaming",
-      });
-
-      const current = useSubsessionsStore.getState().byId[subsessionId];
-      if (!current) return;
-
-      await streamSubsessionReply({
-        chatId: subsessionId,
-        assistantId,
-        messages: buildHistory(current.messages, assistantId),
-        abortSignal: controller.signal,
-        onUpdate: (content) => {
-          patchMessage(subsessionId, assistantId, {
-            content,
-            status: "streaming",
-            error: undefined,
-          });
-        },
-        onError: (error) => {
-          patchMessage(subsessionId, assistantId, {
-            status: "error",
-            error,
-          });
-        },
-      });
-
-      const latest =
-        useSubsessionsStore.getState().byId[subsessionId]?.messages.find(
-          (message) => message.id === assistantId,
-        );
-      if (latest?.status === "streaming") {
-        patchMessage(subsessionId, assistantId, { status: "complete" });
-      }
-    },
-    [appendMessage, buildHistory, patchMessage],
-  );
+  // Hydrate + resume running backend turns (F5 / reopen). Do not abort on unmount.
+  useEffect(() => {
+    if (!activeId) return;
+    void hydrateOrResumeSubsession(activeId);
+  }, [activeId]);
 
   useEffect(() => {
     if (!activeId || replyQueuedFor !== activeId || isStreaming) return;
+    const current = useSubsessionsStore.getState().byId[activeId];
+    const lastUser = [...(current?.messages ?? [])]
+      .reverse()
+      .find((message) => message.role === "user");
     clearReplyQueue();
-    void runAssistant(activeId);
+    if (!lastUser?.content.trim()) return;
+    runTurn(activeId, lastUser.content);
   }, [
     activeId,
     replyQueuedFor,
     isStreaming,
     clearReplyQueue,
-    runAssistant,
+    runTurn,
   ]);
+
+  // Bridge store quote → Lexical chip (same delete / caret UX as main).
+  useEffect(() => {
+    if (!pendingQuote) return;
+    requestSelectionChipInsert({
+      messageId: crypto.randomUUID(),
+      text: pendingQuote,
+      scope: "subsession",
+    });
+    setPendingQuote(null);
+  }, [pendingQuote, setPendingQuote]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
-      inputRef.current?.focus({ preventScroll: true });
+      inputRef.current
+        ?.querySelector<HTMLElement>(".aui-lexical-input")
+        ?.focus({ preventScroll: true });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [pendingQuote, activeId]);
+  }, [activeId, clearToken]);
 
   useEffect(() => {
     setEditingId(null);
     setEditDraft("");
-    abortRef.current?.abort();
-    abortRef.current = null;
   }, [activeId]);
-
-  useEffect(() => {
-    return () => {
-      abortRef.current?.abort();
-    };
-  }, []);
 
   useEffect(() => {
     if (!editingId) return;
@@ -805,29 +960,45 @@ function SubsessionChatBody() {
     return () => window.cancelAnimationFrame(frame);
   }, [editingId]);
 
-  // Smooth scroll / turn motion when a new message lands — same feel as main chat.
+  // Track whether the user is near the bottom (skip auto-scroll when reading up).
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const onScroll = () => {
+      const distance =
+        viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+      stickToBottomRef.current = distance < 80;
+    };
+    viewport.addEventListener("scroll", onScroll, { passive: true });
+    return () => viewport.removeEventListener("scroll", onScroll);
+  }, [activeId]);
+
+  // Single follower: auto pin while near bottom / streaming — no smooth-vs-auto fight.
   useEffect(() => {
     if (messageCount === 0 || editingId) return;
+    if (!stickToBottomRef.current && !isStreaming) return;
     const frame = window.requestAnimationFrame(() => {
-      endRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "end",
-      });
+      endRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [messageCount, activeId, editingId, lastContent]);
+  }, [messageCount, activeId, editingId, lastContentLen, isStreaming]);
+
+  // After hydrate when idle, pin once so Copy/Refresh sit above the composer.
+  useEffect(() => {
+    if (!activeId || isStreaming || messageCount === 0 || !messagesLoaded) {
+      return;
+    }
+    stickToBottomRef.current = true;
+    const frame = window.requestAnimationFrame(() => {
+      endRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeId, messagesLoaded]);
 
   const send = () => {
     if (!activeId || isStreaming) return;
-    const text = draft.trim();
-    if (!text && !pendingQuote) return;
-
-    let content = text;
-    if (pendingQuote) {
-      const chip = formatSelectionDirective(pendingQuote, crypto.randomUUID());
-      content = text ? `${chip} ${text}` : chip;
-      setPendingQuote(null);
-    }
+    const content = flushInlineComposerDraft("subsession").trim() || draft.trim();
+    if (!content) return;
 
     appendMessage(activeId, {
       id: crypto.randomUUID(),
@@ -835,19 +1006,53 @@ function SubsessionChatBody() {
       content,
     });
     setDraft("");
-    void runAssistant(activeId);
+    setClearToken((token) => token + 1);
+    stickToBottomRef.current = true;
+    runTurn(activeId, content);
+    requestAnimationFrame(() => {
+      inputRef.current
+        ?.querySelector<HTMLElement>(".aui-lexical-input")
+        ?.focus({ preventScroll: true });
+    });
   };
 
   const submitEdit = (messageId: string) => {
     if (!activeId || !editDraft.trim() || isStreaming) return;
-    editMessage(activeId, messageId, editDraft.trim());
+    const content = editDraft.trim();
+    editMessage(activeId, messageId, content);
     setEditingId(null);
-    void runAssistant(activeId);
+    runTurn(activeId, content, { editMessageId: messageId });
+  };
+
+  const runKey = activeId ?? "";
+  const liveRunLabel = useAgentRunStatusStore((s) =>
+    runKey ? s.byThreadId[runKey] : undefined,
+  );
+  const runDurationMs = useAgentRunStatusStore((s) =>
+    runKey && lastAssistantId && !isStreaming
+      ? s.durationMsByThreadId[runKey]
+      : undefined,
+  );
+
+  const openSiblingSubsession = () => {
+    if (!subsession?.parentThreadId || !subsession.forkedFromMessageId) return;
+    void useSubsessionsStore
+      .getState()
+      .openFork({
+        parentThreadId: subsession.parentThreadId,
+        forkedFromMessageId: subsession.forkedFromMessageId,
+        forceNew: true,
+      })
+      .then(() => setPanel("subsession-chat"))
+      .catch(() => {
+        // Keep current subsession usable if fork fails.
+      });
   };
 
   return (
     <div
-      className="flex min-h-0 flex-1 flex-col bg-[#121214]"
+      data-subsession-chat=""
+      className="relative flex min-h-0 flex-1 flex-col bg-[#121214]"
       style={
         {
           ["--composer-bg" as string]: "#1c1c21",
@@ -857,40 +1062,49 @@ function SubsessionChatBody() {
         } as CSSProperties
       }
     >
-      <div className="flex h-10 shrink-0 items-center justify-end gap-0.5 px-2">
-        <TooltipIconButton
-          tooltip="Subsessions"
-          side="bottom"
-          type="button"
-          variant="ghost"
-          size="icon"
-          aria-label="Back to subsession list"
-          onClick={() => {
-            setActive(null);
-            setPanel("subsessions");
-          }}
-          className="size-8 rounded-lg text-zinc-500 hover:bg-white/10 hover:text-zinc-200"
-        >
-          <AlignJustifyIcon className="size-[17px] stroke-[1.6]" />
-        </TooltipIconButton>
-        <TooltipIconButton
-          tooltip="Close"
-          side="bottom"
-          type="button"
-          variant="ghost"
-          size="icon"
-          aria-label="Close"
-          onClick={() => {
-            setActive(null);
-            setPanel(null);
-          }}
-          className="size-8 rounded-lg text-zinc-500 hover:bg-white/10 hover:text-zinc-200"
-        >
-          <XIcon className="size-4" />
-        </TooltipIconButton>
+      {/* Same floating chrome as main ThreadTopActions — no header strip. */}
+      <div
+        data-slot="aui_subsession-top-actions"
+        className="pointer-events-none absolute top-0 right-0 z-20 flex h-10 items-center justify-end gap-0.5 px-3 pt-1"
+      >
+        <div className="pointer-events-auto flex items-center gap-0.5">
+          <TooltipIconButton
+            tooltip="Subsessions"
+            side="bottom"
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="Back to subsession list"
+            onClick={() => {
+              setActive(null);
+              setPanel("subsessions");
+            }}
+            className="size-8 rounded-lg text-zinc-500 hover:bg-white/10 hover:text-zinc-200"
+          >
+            <AlignJustifyIcon className="size-[17px] stroke-[1.6]" />
+          </TooltipIconButton>
+          <TooltipIconButton
+            tooltip="Close"
+            side="bottom"
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="Close"
+            onClick={() => {
+              setActive(null);
+              setPanel(null);
+            }}
+            className="size-8 rounded-lg text-zinc-500 hover:bg-white/10 hover:text-zinc-200"
+          >
+            <XIcon className="size-4" />
+          </TooltipIconButton>
+        </div>
       </div>
 
-      <div className="aui-thread-viewport relative flex min-h-0 flex-1 flex-col overflow-x-auto overflow-y-auto scroll-smooth [scrollbar-gutter:stable]">
+      <div
+        ref={viewportRef}
+        className="aui-thread-viewport relative flex min-h-0 flex-1 flex-col overflow-x-auto overflow-y-auto [scrollbar-gutter:stable]"
+      >
         <div
           className={cn(
             "mx-auto flex w-full max-w-(--thread-max-width) flex-1 flex-col px-4",
@@ -941,7 +1155,7 @@ function SubsessionChatBody() {
                             }
                           }}
                           rows={3}
-                          className="aui-edit-composer-input text-foreground min-h-14 w-full resize-none bg-transparent px-4 pt-3 pb-1 text-base outline-none"
+                          className="aui-edit-composer-input text-foreground min-h-14 w-full resize-none bg-transparent px-4 pt-3 pb-1 font-sans text-[16px] leading-[1.7] outline-none"
                         />
                         <div className="aui-edit-composer-footer mx-2.5 mb-2.5 flex items-center gap-1.5 self-end">
                           <Button
@@ -968,59 +1182,67 @@ function SubsessionChatBody() {
                       </div>
                     </div>
                   ) : (
-                  <div
-                    key={message.id}
-                    data-slot="aui_user-message-root"
-                    data-role="user"
-                    className="group/user-msg fade-in slide-in-from-bottom-2 animate-in fill-mode-both grid auto-rows-auto grid-cols-[minmax(72px,1fr)_auto] content-start gap-y-2 px-2 duration-300 ease-out [&:where(>*)]:col-start-2"
-                  >
-                    <div className="aui-user-message-content-wrapper relative col-start-2 min-w-0">
-                      <div className="aui-user-message-content peer bg-muted text-foreground rounded-(--composer-radius) px-4 py-2 wrap-break-word">
-                        <SelectionAwareText
-                          type="text"
-                          text={message.content}
-                          status={{ type: "complete" }}
-                        />
-                      </div>
-                      <div className="aui-user-action-bar-wrapper absolute start-0 top-1/2 -translate-x-full -translate-y-1/2 pe-2 opacity-0 transition-opacity group-hover/user-msg:opacity-100 focus-within:opacity-100">
-                        <TooltipIconButton
-                          tooltip="Edit"
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          aria-label="Edit"
-                          className="aui-user-action-edit size-7 rounded-lg text-zinc-400 hover:bg-white/10 hover:text-zinc-100"
-                          onClick={() => {
-                            setEditDraft(message.content);
-                            setEditingId(message.id);
-                          }}
-                        >
-                          <PencilIcon className="size-3.5" />
-                        </TooltipIconButton>
+                    <div
+                      key={message.id}
+                      data-slot="aui_user-message-root"
+                      data-role="user"
+                      className="group/user-msg fade-in slide-in-from-bottom-1 animate-in grid auto-rows-auto grid-cols-[minmax(72px,1fr)_auto] content-start gap-y-2 px-2 duration-150 [&:where(>*)]:col-start-2"
+                    >
+                      <div className="aui-user-message-content-wrapper relative col-start-2 min-w-0">
+                        <div className="aui-user-message-content peer bg-muted text-foreground w-fit max-w-full rounded-(--composer-radius) px-4 py-2.5 font-sans text-[16px] leading-[1.7] wrap-break-word whitespace-pre-wrap text-zinc-100 empty:hidden">
+                          <SelectionAwareText
+                            type="text"
+                            text={message.content}
+                            status={{ type: "complete" }}
+                          />
+                        </div>
+                        <div className="aui-user-action-bar-wrapper absolute inset-y-0 end-full flex items-center pe-1 pl-2 opacity-0 transition-opacity peer-empty:hidden group-hover/user-msg:opacity-100 group-focus-within/user-msg:opacity-100">
+                          <div className="aui-user-action-bar-root flex flex-row items-center gap-0.5">
+                            <SubsessionCopyButton text={message.content} />
+                            <TooltipIconButton
+                              tooltip="Edit"
+                              side="top"
+                              type="button"
+                              aria-label="Edit"
+                              className="aui-user-action-edit size-7 rounded-lg text-zinc-400 hover:bg-white/10 hover:text-zinc-100"
+                              onClick={() => {
+                                setEditDraft(message.content);
+                                setEditingId(message.id);
+                              }}
+                            >
+                              <PencilIcon className="size-3.5" aria-hidden />
+                            </TooltipIconButton>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  </div>
                   )
                 ) : (
                   <div
                     key={message.id}
                     data-slot="aui_assistant-message-root"
                     data-role="assistant"
-                    className="fade-in slide-in-from-bottom-2 animate-in fill-mode-both relative duration-300 ease-out"
+                    data-message-id={message.id}
+                    className="fade-in slide-in-from-bottom-1 animate-in relative -mb-7.5 pb-7.5 duration-150"
                   >
                     <div
                       data-slot="aui_assistant-message-content"
-                      className="text-foreground px-2 leading-relaxed wrap-break-word whitespace-pre-wrap"
+                      className="text-foreground px-2 font-sans text-[16px] leading-[1.7] wrap-break-word text-zinc-100"
                     >
                       {message.content ? (
-                        message.content
-                      ) : message.status === "streaming" ? (
-                        <span
-                          className="animate-pulse font-sans"
-                          aria-label="Assistant is working"
-                        >
-                          ●
-                        </span>
+                        <StandaloneMarkdownText
+                          text={message.content}
+                          animated={message.status === "streaming"}
+                        />
+                      ) : null}
+                      {message.status === "streaming" && runKey ? (
+                        <SubsessionRunIndicator
+                          runKey={runKey}
+                          label={
+                            liveRunLabel ??
+                            (message.content ? "Writing" : "Thinking")
+                          }
+                        />
                       ) : null}
                       {message.status === "error" && message.error ? (
                         <div className="aui-message-error-root border-destructive bg-destructive/10 text-destructive dark:bg-destructive/5 mt-2 rounded-md border p-3 text-sm dark:text-red-200">
@@ -1030,6 +1252,61 @@ function SubsessionChatBody() {
                         </div>
                       ) : null}
                     </div>
+                    {message.status !== "streaming" && message.content ? (
+                      <div
+                        data-slot="aui_assistant-message-footer"
+                        className="flex min-h-7.5 w-full min-w-0 items-center gap-2 px-2 pt-1.5"
+                      >
+                        <div className="aui-assistant-action-bar-root text-muted-foreground animate-in fade-in -ms-1 flex gap-1 duration-200">
+                          <SubsessionCopyButton text={message.content} />
+                          {message.id === lastAssistantId && !isStreaming ? (
+                            <TooltipIconButton
+                              tooltip="Refresh"
+                              type="button"
+                              className="size-7 rounded-lg text-zinc-400 hover:bg-white/10 hover:text-zinc-100"
+                              onClick={() => {
+                                if (!activeId) return;
+                                const priorUser = [...forkMessages]
+                                  .slice(
+                                    0,
+                                    forkMessages.findIndex(
+                                      (row) => row.id === message.id,
+                                    ),
+                                  )
+                                  .reverse()
+                                  .find((row) => row.role === "user");
+                                if (!priorUser?.content.trim()) return;
+                                void runTurn(activeId, priorUser.content, {
+                                  editMessageId: priorUser.id,
+                                });
+                              }}
+                            >
+                              <RefreshCwIcon className="size-3.5" />
+                            </TooltipIconButton>
+                          ) : null}
+                          {message.id === lastAssistantId ? (
+                            <TooltipIconButton
+                              tooltip="New subsession"
+                              type="button"
+                              className="size-7 rounded-lg text-zinc-400 hover:bg-white/10 hover:text-zinc-100"
+                              onClick={openSiblingSubsession}
+                            >
+                              <MessageSquareIcon className="size-3.5" />
+                            </TooltipIconButton>
+                          ) : null}
+                        </div>
+                        {message.id === lastAssistantId &&
+                        typeof runDurationMs === "number" ? (
+                          <span
+                            data-slot="aui_assistant-message-duration"
+                            className="ms-auto shrink-0 self-center text-xs tabular-nums text-zinc-500"
+                            aria-label={`Generated in ${runDurationMs}ms`}
+                          >
+                            {runDurationMs}ms
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                 ),
               )}
@@ -1047,66 +1324,40 @@ function SubsessionChatBody() {
             <div
               data-slot="aui_composer-shell"
               className="flex w-full cursor-text flex-col gap-2 rounded-(--composer-radius) border border-white/10 bg-(--composer-bg) p-(--composer-padding) shadow-[0_0_0_1px_rgba(255,255,255,0.02)] transition-[border-color,box-shadow] focus-within:border-white/20 focus-within:shadow-[0_8px_40px_rgba(0,0,0,0.45)]"
-              onClick={() => inputRef.current?.focus()}
+              onClick={() =>
+                inputRef.current
+                  ?.querySelector<HTMLElement>(".aui-lexical-input")
+                  ?.focus()
+              }
             >
-              <div className="aui-composer-input relative flex max-h-48 min-h-11 w-full flex-wrap items-center gap-x-1.5 gap-y-1 px-3 py-2 text-base leading-6 text-zinc-100">
-                {pendingQuote ? (
-                  <span
-                    className="aui-selection-chip inline-flex h-5 max-w-[min(100%,14rem)] items-center gap-1 rounded-md bg-[#1b3f5c] py-0 ps-1.5 pe-0.5 align-middle text-[13px] leading-none text-[#b7d4ea]"
-                    contentEditable={false}
-                    data-selection-chip=""
-                  >
-                    <MessageSquareIcon
-                      className="size-3.5 shrink-0 text-[#6fa8cc]"
-                      strokeWidth={1.75}
-                    />
-                    <span className="min-w-0 truncate">
-                      {selectionDirectiveLabel(pendingQuote)}
-                    </span>
-                    <button
-                      type="button"
-                      aria-label="Remove selection"
-                      className="flex size-4 shrink-0 items-center justify-center rounded-sm text-[#6fa8cc] transition-colors hover:bg-white/10 hover:text-[#d7ebf7]"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setPendingQuote(null);
-                      }}
-                    >
-                      <XIcon className="size-3" />
-                    </button>
-                  </span>
-                ) : null}
-                <textarea
-                  ref={inputRef}
-                  value={draft}
-                  onChange={(event) => setDraft(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.shiftKey) {
-                      event.preventDefault();
-                      send();
-                    }
-                  }}
-                  rows={1}
-                  placeholder={pendingQuote ? "" : "Ask anything"}
+              <div ref={inputRef}>
+                <InlineChipComposerInput
+                  scope="subsession"
+                  placeholder="Ask anything"
                   aria-label="Subsession message"
-                  className="min-h-[1.5rem] min-w-[8rem] flex-1 resize-none bg-transparent py-0 text-base leading-6 text-zinc-100 caret-white outline-none placeholder:text-zinc-500"
+                  autoFocus
+                  onEnter={send}
+                  onTextChange={setDraft}
+                  clearToken={clearToken}
+                  className="aui-composer-input relative max-h-48 min-h-11 w-full overflow-x-hidden overflow-y-auto px-3 py-2 text-base leading-6 text-zinc-100 caret-white"
                 />
               </div>
               <div className="aui-composer-action-wrapper relative flex items-center justify-between">
                 <div className="aui-composer-action-start flex min-w-0 items-center gap-1.5">
                   <TooltipIconButton
-                    tooltip="Add Attachment"
+                    tooltip="Add photos & files"
                     side="bottom"
                     type="button"
                     variant="ghost"
                     size="icon"
-                    aria-label="Add Attachment"
-                    className="aui-composer-add-attachment text-muted-foreground hover:text-foreground hover:bg-muted-foreground/15 size-7 rounded-full"
+                    aria-label="Add photos & files"
+                    className="aui-composer-add-attachment text-muted-foreground hover:text-foreground hover:bg-muted-foreground/15 dark:border-muted-foreground/15 dark:hover:bg-muted-foreground/30 size-7 rounded-full active:scale-[0.96] motion-reduce:transition-none"
                   >
-                    <PaperclipIcon className="size-4" />
+                    <PlusIcon className="size-4" />
                   </TooltipIconButton>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
+                  <ComposerModelPicker scope="subsession" />
                   {isStreaming ? (
                     <TooltipIconButton
                       tooltip="Stop generating"
@@ -1116,8 +1367,8 @@ function SubsessionChatBody() {
                       size="icon"
                       aria-label="Stop generating"
                       onClick={() => {
-                        abortRef.current?.abort();
                         if (!activeId) return;
+                        abortSubsessionStream(activeId);
                         const streaming = forkMessages.find(
                           (message) => message.status === "streaming",
                         );

@@ -14,6 +14,7 @@ import { CreateProjectScreen } from "@/components/assistant-ui/elements/create-p
 import { BuildPage } from "@/components/assistant-ui/elements/build-page.aui";
 import { ImageGenPage } from "@/components/assistant-ui/elements/image-gen-page.aui";
 import { LibraryPage } from "@/components/assistant-ui/elements/library-page.aui";
+import { ResearchPage } from "@/components/assistant-ui/elements/research-page.aui";
 import { SlidesPage } from "@/components/assistant-ui/elements/slides-page.aui";
 import {
   ContextRail,
@@ -51,6 +52,7 @@ import {
   getLastSessionUserMessageId,
   setPendingMessageEdit,
 } from "@/lib/pending-message-edit";
+import { resolveBackendMessageId } from "@/lib/backend-message-id";
 import { useSubsessionsStore } from "@/lib/subsessions-store";
 import { cn } from "@/lib/utils";
 import {
@@ -220,16 +222,15 @@ export const Thread: FC<ThreadProps> = ({
   autoFocus = true,
 }) => {
   const messageCount = useAuiState((s) => s.thread.messages.length);
-  const composerEmpty = useAuiState((s) => s.composer.isEmpty);
   const isRunning = useAuiState((s) => s.thread.isRunning);
   const awaitingBackendHistory = useAwaitingBackendHistory();
-  // Welcome only for true empty New chat — hide as soon as the user types,
-  // sends, or a run starts so brand never stacks over draft/messages.
+  // Keep New chat centered (hero + composer) while drafting. Suggestions already
+  // hide on type; leave this surface only when messages exist, a run starts, or
+  // history is loading — never when the composer merely has draft text.
   const newChatSpotlight = useProjectsStore((s) => s.newChatSpotlight);
   const showWelcome =
     newChatSpotlight &&
     messageCount === 0 &&
-    composerEmpty &&
     !isRunning &&
     !awaitingBackendHistory;
 
@@ -338,8 +339,9 @@ const ThreadRoot: FC<{
   const isImageGen = useProjectsStore((s) => s.isImageGen);
   const isSlides = useProjectsStore((s) => s.isSlides);
   const isBuild = useProjectsStore((s) => s.isBuild);
-  // Imagine / Slides / Build website share the same standalone hero+gallery shell.
-  const showModeSurface = isImageGen || isSlides || isBuild;
+  const isResearch = useProjectsStore((s) => s.isResearch);
+  // Imagine / Slides / Build / Research share the same standalone hero shell.
+  const showModeSurface = isImageGen || isSlides || isBuild || isResearch;
   const showSidePane =
     isBrowsingProjects ||
     isCreatingProject ||
@@ -391,6 +393,8 @@ const ThreadRoot: FC<{
               <SlidesPage />
             ) : isBuild ? (
               <BuildPage />
+            ) : isResearch ? (
+              <ResearchPage />
             ) : (
               <ProjectsBrowse />
             )}
@@ -720,7 +724,7 @@ const Composer: FC<{
             placeholder="Ask anything"
             autoFocus={autoFocus}
             aria-label="Message input"
-            className="aui-composer-input relative max-h-48 min-h-11 w-full px-3 py-2 text-base leading-6 text-zinc-100 caret-white"
+            className="aui-composer-input relative max-h-48 min-h-11 w-full overflow-x-hidden overflow-y-auto px-3 py-2 text-base leading-6 text-zinc-100 caret-white"
           />
         </div>
         <ComposerAction />
@@ -797,6 +801,100 @@ const MessageError: FC = () => {
   );
 };
 
+const useRunElapsedMs = (threadId: string | undefined, active: boolean) => {
+  const startedAt = useAgentRunStatusStore((s) =>
+    threadId ? s.startedAtByThreadId[threadId] : undefined,
+  );
+  const [elapsedMs, setElapsedMs] = useState(0);
+
+  useEffect(() => {
+    if (!startedAt) {
+      setElapsedMs(0);
+      return;
+    }
+    const tick = () => {
+      setElapsedMs(Math.max(0, Date.now() - startedAt));
+    };
+    tick();
+    if (!active) return;
+    const id = window.setInterval(tick, 50);
+    return () => window.clearInterval(id);
+  }, [startedAt, active]);
+
+  if (!startedAt) return null;
+  return elapsedMs;
+};
+
+const AssistantRunIndicator: FC<{
+  label: string;
+  threadId: string | undefined;
+}> = ({ label, threadId }) => {
+  const isTerminal = label === "Done";
+  const elapsedMs = useRunElapsedMs(threadId, !isTerminal);
+
+  return (
+    <div
+      data-slot="aui_assistant-message-indicator"
+      className="mb-1.5 flex min-h-8 w-full items-center gap-2.5 font-sans text-[15px] font-medium leading-snug tracking-tight text-zinc-300"
+      aria-label={
+        elapsedMs == null ? label : `${label} ${elapsedMs}ms`
+      }
+      role="status"
+    >
+      {!isTerminal ? (
+        <span className="inline-flex items-center gap-1.5" aria-hidden>
+          <span className="size-1.5 animate-pulse rounded-full bg-zinc-400" />
+          <span className="size-1.5 animate-pulse rounded-full bg-zinc-400 [animation-delay:150ms]" />
+          <span className="size-1.5 animate-pulse rounded-full bg-zinc-400 [animation-delay:300ms]" />
+        </span>
+      ) : (
+        <span
+          className="size-1.5 shrink-0 rounded-full bg-zinc-600"
+          aria-hidden
+        />
+      )}
+      <span
+        key={label}
+        className={cn(
+          "min-w-0 fade-in slide-in-from-left-1 animate-in fill-mode-both duration-200",
+          isTerminal ? "text-zinc-500" : "text-zinc-300",
+          !isTerminal && "shimmer motion-reduce:animate-none",
+        )}
+      >
+        {label}
+      </span>
+      {elapsedMs != null ? (
+        <span
+          className={cn(
+            "ms-auto shrink-0 tabular-nums text-xs font-normal tracking-normal",
+            isTerminal ? "text-zinc-600" : "text-zinc-500",
+          )}
+        >
+          {elapsedMs}ms
+        </span>
+      ) : null}
+    </div>
+  );
+};
+
+function readRunDurationMs(message: {
+  metadata?: {
+    timing?: { totalStreamTime?: number };
+    custom?: Record<string, unknown>;
+    runDurationMs?: unknown;
+  };
+}): number | null {
+  const custom = message.metadata?.custom?.runDurationMs;
+  const top = message.metadata?.runDurationMs;
+  const timing = message.metadata?.timing?.totalStreamTime;
+  for (const value of [custom, top, timing]) {
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+      return Math.round(value);
+    }
+  }
+  return null;
+}
+
 const AssistantMessage: FC = () => {
   const {
     ToolFallback: ToolFallbackComponent = ToolFallback,
@@ -808,11 +906,24 @@ const AssistantMessage: FC = () => {
   const isRunning = useAuiState(
     (s) => s.message.status?.type === "running",
   );
+  const isLast = useAuiState((s) => s.message.isLast);
+  const messageId = useAuiState((s) => s.message.id);
+  const messageDurationMs = useAuiState((s) => readRunDurationMs(s.message));
   const mainThreadId = useAuiState((s) => s.threads.mainThreadId);
   // Keyed by thread id so new chats update before backend session map exists.
   const runStatus = useAgentRunStatusStore((s) =>
     mainThreadId ? s.byThreadId[mainThreadId] : undefined,
   );
+  const liveDurationMs = useAgentRunStatusStore((s) =>
+    mainThreadId && isLast
+      ? s.durationMsByThreadId[mainThreadId]
+      : undefined,
+  );
+  const runDurationMs =
+    isLast && !isRunning
+      ? (messageDurationMs ??
+        (typeof liveDurationMs === "number" ? liveDurationMs : null))
+      : null;
 
   const ACTION_BAR_PT = "pt-1.5";
   // Keep the action bar inside the contained root's paint box, then cancel its reserved space in flow.
@@ -822,6 +933,7 @@ const AssistantMessage: FC = () => {
     <MessagePrimitive.Root
       data-slot="aui_assistant-message-root"
       data-role="assistant"
+      data-message-id={messageId}
       className={cn(
         "fade-in slide-in-from-bottom-1 animate-in relative -mb-7.5 pb-7.5 duration-150",
         !isRunning &&
@@ -830,7 +942,7 @@ const AssistantMessage: FC = () => {
     >
       <div
         data-slot="aui_assistant-message-content"
-        className="text-foreground px-2 font-sans text-[15px] leading-[1.65] wrap-break-word text-zinc-100"
+        className="text-foreground px-2 font-sans text-[16px] leading-[1.7] wrap-break-word text-zinc-100"
       >
         <MessagePrimitive.GroupedParts groupBy={groupBy}>
           {({ part, children }) => {
@@ -871,55 +983,16 @@ const AssistantMessage: FC = () => {
                   </div>
                 );
               case "indicator": {
-                // While the run is live but session/status isn't mapped yet (new chat),
-                // show Thinking. Once a real label exists (Responding, …), never invent
-                // Thinking — that was the pre-answer flash.
+                // Only FE-invented labels: Thinking (no status yet) and Done (run end).
+                // Everything else is the exact agent stream string.
                 const label =
                   runStatus ?? (isRunning ? "Thinking" : null);
                 if (!label) return null;
-                const isTerminal = label === "Done";
-                const toolMatch = /^Using · (.+)$/.exec(label);
-                const stepTitle = toolMatch ? "Using" : label;
-                const toolName = toolMatch?.[1] ?? null;
                 return (
-                  <div
-                    data-slot="aui_assistant-message-indicator"
-                    className="mb-1.5 flex min-h-8 w-full items-center gap-2.5 font-sans text-[15px] font-medium leading-snug tracking-tight text-zinc-300"
-                    aria-label={label}
-                    role="status"
-                  >
-                    {!isTerminal ? (
-                      <span
-                        className="inline-flex items-center gap-1.5"
-                        aria-hidden
-                      >
-                        <span className="size-1.5 animate-pulse rounded-full bg-zinc-400" />
-                        <span className="size-1.5 animate-pulse rounded-full bg-zinc-400 [animation-delay:150ms]" />
-                        <span className="size-1.5 animate-pulse rounded-full bg-zinc-400 [animation-delay:300ms]" />
-                      </span>
-                    ) : (
-                      <span
-                        className="size-1.5 shrink-0 rounded-full bg-zinc-600"
-                        aria-hidden
-                      />
-                    )}
-                    <span
-                      key={label}
-                      className={cn(
-                        "min-w-0 fade-in slide-in-from-left-1 animate-in fill-mode-both duration-200",
-                        isTerminal ? "text-zinc-500" : "text-zinc-300",
-                        !isTerminal && "shimmer motion-reduce:animate-none",
-                      )}
-                    >
-                      {isTerminal ? "Done" : stepTitle}
-                      {toolName ? (
-                        <span className="text-zinc-200">
-                          {" · "}
-                          {toolName}
-                        </span>
-                      ) : null}
-                    </span>
-                  </div>
+                  <AssistantRunIndicator
+                    label={label}
+                    threadId={mainThreadId}
+                  />
                 );
               }
               default:
@@ -939,6 +1012,15 @@ const AssistantMessage: FC = () => {
       >
         <BranchPicker />
         <AssistantActionBar />
+        {runDurationMs != null ? (
+          <span
+            data-slot="aui_assistant-message-duration"
+            className="ms-auto shrink-0 self-center text-xs tabular-nums text-zinc-500"
+            aria-label={`Generated in ${runDurationMs}ms`}
+          >
+            {runDurationMs}ms
+          </span>
+        ) : null}
       </div>
     </MessagePrimitive.Root>
   );
@@ -948,13 +1030,21 @@ const AssistantActionBar: FC = () => {
   const openFork = useSubsessionsStore((s) => s.openFork);
   const setPanel = useContextRailStore((s) => s.setPanel);
   const mainThreadId = useAuiState((s) => s.threads.mainThreadId);
-  const messageIndex = useAuiState((s) => s.message.index);
+  const forkedFromMessageId = useAuiState((s) =>
+    resolveBackendMessageId(s.message),
+  );
 
   const openNewSubsession = () => {
-    if (!mainThreadId) return;
-    // Include this assistant message in the fork cutoff.
-    openFork(mainThreadId, messageIndex + 1, { forceNew: true });
-    setPanel("subsession-chat");
+    if (!mainThreadId || !forkedFromMessageId) return;
+    void openFork({
+      parentThreadId: mainThreadId,
+      forkedFromMessageId,
+      forceNew: true,
+    })
+      .then(() => setPanel("subsession-chat"))
+      .catch(() => {
+        // Keep main thread usable if fork fails.
+      });
   };
 
   return (
@@ -1021,7 +1111,7 @@ const UserMessage: FC = () => {
       <UserMessageAttachments />
 
       <div className="aui-user-message-content-wrapper relative col-start-2 min-w-0">
-        <div className="aui-user-message-content peer bg-muted text-foreground rounded-(--composer-radius) px-4 py-2 wrap-break-word whitespace-pre-wrap empty:hidden">
+        <div className="aui-user-message-content peer bg-muted text-foreground w-fit max-w-full rounded-(--composer-radius) px-4 py-2.5 font-sans text-[16px] leading-[1.7] wrap-break-word whitespace-pre-wrap text-zinc-100 empty:hidden">
           <MessagePrimitive.Parts
             components={{
               Text: SelectionAwareText,
@@ -1048,16 +1138,39 @@ const UserActionBar: FC = () => {
   return (
     <ActionBarPrimitive.Root
       hideWhenRunning
-      className="aui-user-action-bar-root flex flex-col items-end"
+      className="aui-user-action-bar-root flex flex-row items-center gap-0.5"
     >
+      <ActionBarPrimitive.Copy
+        render={
+          <TooltipIconButton
+            tooltip="Copy"
+            side="top"
+            type="button"
+            aria-label="Copy"
+            className="aui-user-action-copy size-7 rounded-lg text-zinc-400 hover:bg-white/10 hover:text-zinc-100"
+          />
+        }
+      >
+        <AuiIf condition={(s) => s.message.isCopied}>
+          <CheckIcon
+            className="size-3.5 animate-in zoom-in-50 fade-in duration-200 ease-out"
+            aria-hidden
+          />
+        </AuiIf>
+        <AuiIf condition={(s) => !s.message.isCopied}>
+          <CopyIcon
+            className="size-3.5 animate-in zoom-in-75 fade-in duration-150"
+            aria-hidden
+          />
+        </AuiIf>
+      </ActionBarPrimitive.Copy>
       <ActionBarPrimitive.Edit
         render={
-          <Button
+          <TooltipIconButton
+            tooltip="Edit"
+            side="top"
             type="button"
-            variant="ghost"
-            size="icon"
             aria-label="Edit"
-            title="Edit"
             className="aui-user-action-edit size-7 rounded-lg text-zinc-400 hover:bg-white/10 hover:text-zinc-100"
           />
         }
@@ -1074,7 +1187,6 @@ const EditComposer: FC = () => {
   const appendMessage = useSubsessionsStore((s) => s.appendMessage);
   const queueReply = useSubsessionsStore((s) => s.queueReply);
   const setPanel = useContextRailStore((s) => s.setPanel);
-  const messageIndex = useAuiState((s) => s.message.index);
   const mainThreadId = useAuiState((s) => s.threads.mainThreadId);
   const isLatestUserMessage = useAuiState((s) => {
     const { messages } = s.thread;
@@ -1085,14 +1197,9 @@ const EditComposer: FC = () => {
     }
     return s.message.isLast;
   });
-  const backendMessageId = useAuiState((s) => {
-    const custom = s.message.metadata?.custom as
-      | Record<string, unknown>
-      | undefined;
-    return typeof custom?.backendMessageId === "string"
-      ? custom.backendMessageId
-      : undefined;
-  });
+  const backendMessageId = useAuiState((s) =>
+    resolveBackendMessageId(s.message),
+  );
 
   const submitEdit = () => {
     flushInlineComposerDraft();
@@ -1116,19 +1223,26 @@ const EditComposer: FC = () => {
   const startInSubsession = () => {
     flushInlineComposerDraft();
     const text = aui.composer.getState().text.trim();
-    if (!text || !mainThreadId) return;
+    if (!text || !mainThreadId || !backendMessageId) return;
 
     aui.composer.cancel();
-    const subsessionId = openFork(mainThreadId, messageIndex, {
+    void openFork({
+      parentThreadId: mainThreadId,
+      forkedFromMessageId: backendMessageId,
       forceNew: true,
-    });
-    appendMessage(subsessionId, {
-      id: crypto.randomUUID(),
-      role: "user",
-      content: text,
-    });
-    queueReply(subsessionId);
-    setPanel("subsession-chat");
+    })
+      .then((subsessionId) => {
+        appendMessage(subsessionId, {
+          id: crypto.randomUUID(),
+          role: "user",
+          content: text,
+        });
+        queueReply(subsessionId);
+        setPanel("subsession-chat");
+      })
+      .catch(() => {
+        // Keep editor usable if fork fails.
+      });
   };
 
   const primarySubmit = isLatestUserMessage ? submitEdit : startInSubsession;

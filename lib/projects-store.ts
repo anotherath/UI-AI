@@ -77,6 +77,7 @@ type ProjectsState = {
   isImageGen: boolean;
   isSlides: boolean;
   isBuild: boolean;
+  isResearch: boolean;
   addProject: (input?: string | CreateProjectInput) => Project;
   updateProject: (id: string, patch: ProjectPatch) => void;
   addProjectFiles: (id: string, files: ProjectFile[]) => void;
@@ -107,6 +108,8 @@ type ProjectsState = {
   closeSlides: () => void;
   openBuild: () => void;
   closeBuild: () => void;
+  openResearch: () => void;
+  closeResearch: () => void;
 };
 
 const EMBEDDING_TIMERS = new Map<string, number>();
@@ -142,6 +145,7 @@ export const useProjectsStore = create<ProjectsState>()(
       isImageGen: false,
       isSlides: false,
       isBuild: false,
+      isResearch: false,
       addProject: (input) => {
         const payload: CreateProjectInput =
           typeof input === "string" || input == null
@@ -171,6 +175,7 @@ export const useProjectsStore = create<ProjectsState>()(
           isImageGen: false,
           isSlides: false,
           isBuild: false,
+          isResearch: false,
           libraryProjectId: null,
           editingId: null,
         }));
@@ -222,6 +227,7 @@ export const useProjectsStore = create<ProjectsState>()(
           isImageGen: false,
           isSlides: false,
           isBuild: false,
+          isResearch: false,
           libraryProjectId: null,
           editingId: null,
         }));
@@ -305,6 +311,7 @@ export const useProjectsStore = create<ProjectsState>()(
           isImageGen: false,
           isSlides: false,
           isBuild: false,
+          isResearch: false,
           libraryProjectId: null,
           editingId: null,
         }),
@@ -319,6 +326,7 @@ export const useProjectsStore = create<ProjectsState>()(
           isImageGen: false,
           isSlides: false,
           isBuild: false,
+          isResearch: false,
           libraryProjectId: null,
           editingId: null,
         }),
@@ -341,6 +349,7 @@ export const useProjectsStore = create<ProjectsState>()(
           isImageGen: false,
           isSlides: false,
           isBuild: false,
+          isResearch: false,
           libraryProjectId: null,
           editingId: null,
         }),
@@ -382,6 +391,7 @@ export const useProjectsStore = create<ProjectsState>()(
           isImageGen: false,
           isSlides: false,
           isBuild: false,
+          isResearch: false,
           libraryProjectId: null,
           // Only Add project should be lit — dim New chat + CHATS rows.
           newChatSpotlight: false,
@@ -396,6 +406,7 @@ export const useProjectsStore = create<ProjectsState>()(
           isImageGen: false,
           isSlides: false,
           isBuild: false,
+          isResearch: false,
           libraryProjectId: null,
           newChatSpotlight: false,
           sidebarHighlight: "new-chat",
@@ -409,6 +420,7 @@ export const useProjectsStore = create<ProjectsState>()(
           isImageGen: false,
           isSlides: false,
           isBuild: false,
+          isResearch: false,
           libraryProjectId: null,
         }),
       openBrowseProjects: () =>
@@ -419,6 +431,7 @@ export const useProjectsStore = create<ProjectsState>()(
           isImageGen: false,
           isSlides: false,
           isBuild: false,
+          isResearch: false,
           libraryProjectId: null,
           editingId: null,
           newChatSpotlight: false,
@@ -435,6 +448,7 @@ export const useProjectsStore = create<ProjectsState>()(
           isImageGen: false,
           isSlides: false,
           isBuild: false,
+          isResearch: false,
           editingId: null,
           newChatSpotlight: false,
           sidebarHighlight: "new-chat",
@@ -446,12 +460,14 @@ export const useProjectsStore = create<ProjectsState>()(
           isImageGen: false,
           isSlides: false,
           isBuild: false,
+          isResearch: false,
         }),
       openImageGen: () =>
         set({
           isImageGen: true,
           isSlides: false,
           isBuild: false,
+          isResearch: false,
           isLibrary: false,
           libraryProjectId: null,
           isBrowsing: false,
@@ -465,6 +481,7 @@ export const useProjectsStore = create<ProjectsState>()(
         set({
           isSlides: true,
           isBuild: false,
+          isResearch: false,
           isImageGen: false,
           isLibrary: false,
           libraryProjectId: null,
@@ -480,6 +497,7 @@ export const useProjectsStore = create<ProjectsState>()(
           isBuild: true,
           isSlides: false,
           isImageGen: false,
+          isResearch: false,
           isLibrary: false,
           libraryProjectId: null,
           isBrowsing: false,
@@ -489,6 +507,21 @@ export const useProjectsStore = create<ProjectsState>()(
           sidebarHighlight: "new-chat",
         }),
       closeBuild: () => set({ isBuild: false }),
+      openResearch: () =>
+        set({
+          isResearch: true,
+          isBuild: false,
+          isSlides: false,
+          isImageGen: false,
+          isLibrary: false,
+          libraryProjectId: null,
+          isBrowsing: false,
+          isCreating: false,
+          editingId: null,
+          newChatSpotlight: false,
+          sidebarHighlight: "new-chat",
+        }),
+      closeResearch: () => set({ isResearch: false }),
     }),
     {
       name: "ai-rag-projects",
@@ -525,6 +558,7 @@ export const useProjectsStore = create<ProjectsState>()(
           isImageGen: false,
           isSlides: false,
           isBuild: false,
+          isResearch: false,
           libraryProjectId: null,
           editingId: null,
         };

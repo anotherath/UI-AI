@@ -33,6 +33,28 @@ export type ChatSessionListPage = {
 /** Initial sidebar page — ~15 visible rows before scroll-load-more. */
 export const CHAT_SESSION_PAGE_SIZE = 15;
 
+/** Backend `GET /chat/sessions/search` — min query length. */
+export const CHAT_SESSION_SEARCH_MIN_Q = 2;
+
+export type ChatSessionSearchScope = "all" | "title" | "messages";
+
+export type ChatSessionSearchHit = {
+  session: ChatSession;
+  match_in: "title" | "message";
+  snippet: string;
+  message_id: string | null;
+};
+
+export type ChatSessionSearchPage = {
+  items: ChatSessionSearchHit[];
+  total: number;
+  limit: number;
+  offset: number;
+  has_more: boolean;
+  q: string;
+  scope: ChatSessionSearchScope;
+};
+
 export type ChatMessage = {
   id: string;
   session_id: string;
@@ -48,6 +70,29 @@ export type AgentSseEvent = {
   event: string;
   data: Record<string, unknown>;
 };
+
+/** Public LLM catalog row from GET /api/v1/models (no secrets). */
+export type CatalogModel = {
+  id: string;
+  provider: string;
+  provider_label: string;
+  label: string;
+  is_default: boolean;
+};
+
+export type CatalogModelList = {
+  items: CatalogModel[];
+  default: string;
+};
+
+/** Omit / null → backend default (or regenerate metadata). */
+export function catalogModelBody(
+  model: string | null | undefined,
+): { model?: string } {
+  const raw = (model ?? "").trim();
+  if (!raw || raw === "auto") return {};
+  return { model: raw };
+}
 
 async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   const response = await fetch(`${getApiBaseUrl()}${path}`, {
@@ -133,6 +178,50 @@ export async function getChatSession(sessionId: string): Promise<ChatSession> {
   return normalizeSession((await response.json()) as ChatSession);
 }
 
+/**
+ * GET /api/v1/chat/sessions/search
+ * Title and/or message ILIKE search; deduped by session (title wins).
+ */
+export async function searchChatSessions(options: {
+  q: string;
+  scope?: ChatSessionSearchScope;
+  projectId?: string | null;
+  limit?: number;
+  offset?: number;
+}): Promise<ChatSessionSearchPage> {
+  const q = options.q.trim();
+  const params = new URLSearchParams();
+  params.set("q", q);
+  params.set("scope", options.scope ?? "all");
+  if (options.projectId != null && options.projectId !== "") {
+    params.set("project_id", options.projectId);
+  }
+  params.set("limit", String(options.limit ?? CHAT_SESSION_PAGE_SIZE));
+  params.set("offset", String(options.offset ?? 0));
+  const response = await apiFetch(
+    `/api/v1/chat/sessions/search?${params.toString()}`,
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to search chat sessions (${response.status})`);
+  }
+  const page = (await response.json()) as ChatSessionSearchPage;
+  return {
+    ...page,
+    items: (page.items ?? []).map((hit) => ({
+      session: normalizeSession(hit.session),
+      match_in: hit.match_in === "message" ? "message" : "title",
+      snippet: typeof hit.snippet === "string" ? hit.snippet : "",
+      message_id: hit.message_id ?? null,
+    })),
+    total: page.total ?? 0,
+    limit: page.limit ?? CHAT_SESSION_PAGE_SIZE,
+    offset: page.offset ?? 0,
+    has_more: Boolean(page.has_more),
+    q: page.q ?? q,
+    scope: page.scope ?? options.scope ?? "all",
+  };
+}
+
 export async function listChatMessages(sessionId: string): Promise<ChatMessage[]> {
   const response = await apiFetch(
     `/api/v1/chat/sessions/${encodeURIComponent(sessionId)}/messages`,
@@ -141,6 +230,52 @@ export async function listChatMessages(sessionId: string): Promise<ChatMessage[]
     throw new Error(`Failed to list messages (${response.status})`);
   }
   return (await response.json()) as ChatMessage[];
+}
+
+/** GET /sessions/{mainId}/subsessions */
+export async function listSubsessions(
+  parentSessionId: string,
+): Promise<ChatSession[]> {
+  const response = await apiFetch(
+    `/api/v1/chat/sessions/${encodeURIComponent(parentSessionId)}/subsessions`,
+    { cache: "no-store" },
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to list subsessions (${response.status})`);
+  }
+  const rows = (await response.json()) as ChatSession[];
+  return rows.map(normalizeSession);
+}
+
+/** POST /sessions/{mainId}/fork — empty branch from a main message. */
+export async function forkChatSession(
+  parentSessionId: string,
+  input: {
+    forkedFromMessageId: string;
+    title?: string | null;
+  },
+): Promise<ChatSession> {
+  const response = await apiFetch(
+    `/api/v1/chat/sessions/${encodeURIComponent(parentSessionId)}/fork`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        forked_from_message_id: input.forkedFromMessageId,
+        title: input.title ?? null,
+      }),
+    },
+  );
+  if (!response.ok) {
+    let detail = `Failed to fork session (${response.status})`;
+    try {
+      const payload = (await response.json()) as { detail?: unknown };
+      if (typeof payload.detail === "string") detail = payload.detail;
+    } catch {
+      // ignore
+    }
+    throw new Error(detail);
+  }
+  return normalizeSession((await response.json()) as ChatSession);
 }
 
 export async function updateChatSessionTitle(
@@ -255,19 +390,38 @@ async function throwStreamError(
   );
 }
 
+/** GET /api/v1/models — picker catalog (auth required). */
+export async function listCatalogModels(): Promise<CatalogModelList> {
+  const response = await apiFetch("/api/v1/models", { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`Failed to list models (${response.status})`);
+  }
+  const payload = (await response.json()) as CatalogModelList;
+  return {
+    items: Array.isArray(payload.items) ? payload.items : [],
+    default: typeof payload.default === "string" ? payload.default : "",
+  };
+}
+
 /** POST user message and return the raw SSE response body. */
 export async function postChatMessageStream(
   sessionId: string,
   content: string,
-  abortSignal?: AbortSignal,
+  options?: {
+    model?: string | null;
+    abortSignal?: AbortSignal;
+  },
 ): Promise<ReadableStream<Uint8Array>> {
   const response = await apiFetch(
     `/api/v1/chat/sessions/${encodeURIComponent(sessionId)}/messages`,
     {
       method: "POST",
       headers: { Accept: "text/event-stream" },
-      body: JSON.stringify({ content }),
-      signal: abortSignal,
+      body: JSON.stringify({
+        content,
+        ...catalogModelBody(options?.model),
+      }),
+      signal: options?.abortSignal,
       cache: "no-store",
     },
   );
@@ -315,15 +469,21 @@ export async function editChatMessageStream(
   sessionId: string,
   messageId: string,
   content: string,
-  abortSignal?: AbortSignal,
+  options?: {
+    model?: string | null;
+    abortSignal?: AbortSignal;
+  },
 ): Promise<ReadableStream<Uint8Array>> {
   const response = await apiFetch(
     `/api/v1/chat/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}/edit`,
     {
       method: "POST",
       headers: { Accept: "text/event-stream" },
-      body: JSON.stringify({ content }),
-      signal: abortSignal,
+      body: JSON.stringify({
+        content,
+        ...catalogModelBody(options?.model),
+      }),
+      signal: options?.abortSignal,
       cache: "no-store",
     },
   );
@@ -345,18 +505,24 @@ export async function editChatMessageStream(
  */
 export async function regenerateChatMessageStream(
   sessionId: string,
-  userMessageId?: string | null,
-  abortSignal?: AbortSignal,
+  options?: {
+    userMessageId?: string | null;
+    model?: string | null;
+    abortSignal?: AbortSignal;
+  },
 ): Promise<ReadableStream<Uint8Array>> {
   const response = await apiFetch(
     `/api/v1/chat/sessions/${encodeURIComponent(sessionId)}/regenerate`,
     {
       method: "POST",
       headers: { Accept: "text/event-stream" },
-      body: JSON.stringify(
-        userMessageId ? { user_message_id: userMessageId } : {},
-      ),
-      signal: abortSignal,
+      body: JSON.stringify({
+        ...(options?.userMessageId
+          ? { user_message_id: options.userMessageId }
+          : {}),
+        ...catalogModelBody(options?.model),
+      }),
+      signal: options?.abortSignal,
       cache: "no-store",
     },
   );

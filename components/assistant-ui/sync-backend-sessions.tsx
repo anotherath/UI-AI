@@ -11,6 +11,7 @@ import {
 } from "@/lib/chat-session-map";
 import { useChatSessionsStore } from "@/lib/chat-sessions-store";
 import { importChatMessagesIntoThread } from "@/lib/hydrate-thread-messages";
+import { useModelsStore } from "@/lib/models-store";
 import { openBackendChatSession } from "@/lib/open-chat-session";
 import {
   clearPendingChatRun,
@@ -26,6 +27,7 @@ export function SyncBackendSessions() {
   const { status } = useAuth();
   const aui = useAui();
   const fetchSessions = useChatSessionsStore((s) => s.fetchSessions);
+  const fetchModels = useModelsStore((s) => s.fetchModels);
   const sessions = useChatSessionsStore((s) => s.sessions);
   const isLoadingSessions = useChatSessionsStore((s) => s.isLoading);
   const isMessagesHydrated = useChatSessionsStore((s) => s.isMessagesHydrated);
@@ -44,11 +46,12 @@ export function SyncBackendSessions() {
   const hydratingMessagesRef = useRef<string | null>(null);
   const restoredActiveRef = useRef(false);
 
-  // Fetch session list once authenticated.
+  // Fetch session list + LLM catalog once authenticated.
   useEffect(() => {
     if (status !== "authenticated") return;
     void fetchSessions();
-  }, [status, fetchSessions]);
+    void fetchModels();
+  }, [status, fetchModels, fetchSessions]);
 
   // After refresh: reopen the last active chat (and any running background turn).
   useEffect(() => {

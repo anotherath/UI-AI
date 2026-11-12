@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { TooltipIconButton } from "@/components/assistant-ui/elements/tooltip-icon-button";
 import { cn } from "@/lib/utils";
 import {
   ThreadListItemMorePrimitive,
@@ -67,6 +68,7 @@ export const ThreadList: FC = () => {
   const openImageGen = useProjectsStore((s) => s.openImageGen);
   const openSlides = useProjectsStore((s) => s.openSlides);
   const openBuild = useProjectsStore((s) => s.openBuild);
+  const openResearch = useProjectsStore((s) => s.openResearch);
   const startNormalChat = useProjectsStore((s) => s.startNormalChat);
   const newChatSpotlight = useProjectsStore((s) => s.newChatSpotlight);
   const isBrowsing = useProjectsStore((s) => s.isBrowsing);
@@ -75,12 +77,14 @@ export const ThreadList: FC = () => {
   const isImageGen = useProjectsStore((s) => s.isImageGen);
   const isSlides = useProjectsStore((s) => s.isSlides);
   const isBuild = useProjectsStore((s) => s.isBuild);
+  const isResearch = useProjectsStore((s) => s.isResearch);
   const closeBrowseProjects = useProjectsStore((s) => s.closeBrowseProjects);
   const closeCreateProject = useProjectsStore((s) => s.closeCreateProject);
   const closeLibrary = useProjectsStore((s) => s.closeLibrary);
   const closeImageGen = useProjectsStore((s) => s.closeImageGen);
   const closeSlides = useProjectsStore((s) => s.closeSlides);
   const closeBuild = useProjectsStore((s) => s.closeBuild);
+  const closeResearch = useProjectsStore((s) => s.closeResearch);
   const aui = useAui();
   // Side panes own the active pill — never keep New chat lit.
   const isNewChatActive =
@@ -90,13 +94,15 @@ export const ThreadList: FC = () => {
     !isLibrary &&
     !isImageGen &&
     !isSlides &&
-    !isBuild;
+    !isBuild &&
+    !isResearch;
 
   const goToNormalChat = () => {
     closeLibrary();
     closeImageGen();
     closeSlides();
     closeBuild();
+    closeResearch();
     closeCreateProject();
     closeBrowseProjects();
     useComposerPrefsStore.getState().setMode("auto");
@@ -117,6 +123,7 @@ export const ThreadList: FC = () => {
     closeLibrary();
     closeImageGen();
     closeSlides();
+    closeResearch();
     closeCreateProject();
     closeBrowseProjects();
     useComposerPrefsStore.getState().setMode("website");
@@ -134,6 +141,7 @@ export const ThreadList: FC = () => {
     closeLibrary();
     closeSlides();
     closeBuild();
+    closeResearch();
     closeCreateProject();
     closeBrowseProjects();
     useComposerPrefsStore.getState().setMode("imagine");
@@ -152,6 +160,7 @@ export const ThreadList: FC = () => {
     closeLibrary();
     closeImageGen();
     closeBuild();
+    closeResearch();
     closeCreateProject();
     closeBrowseProjects();
     useComposerPrefsStore.getState().setMode("slides");
@@ -163,6 +172,24 @@ export const ThreadList: FC = () => {
     }
     aui.threads.switchToNewThread();
     openSlides();
+  };
+
+  const goToResearch = () => {
+    closeLibrary();
+    closeImageGen();
+    closeSlides();
+    closeBuild();
+    closeCreateProject();
+    closeBrowseProjects();
+    useComposerPrefsStore.getState().setMode("research");
+    useChatSessionsStore.getState().clearActiveSession();
+    try {
+      aui.composer.setText("");
+    } catch {
+      // Composer may be unavailable mid-unmount.
+    }
+    aui.threads.switchToNewThread();
+    openResearch();
   };
 
   return (
@@ -217,6 +244,18 @@ export const ThreadList: FC = () => {
           <PresentationIcon className="size-4 shrink-0" />
           <span className="truncate group-data-[sidebar-mode=icon]:hidden">
             Slides
+          </span>
+        </button>
+        <button
+          type="button"
+          aria-label="Research"
+          aria-current={isResearch ? "page" : undefined}
+          className={cn(navItemClass, isResearch && "bg-muted text-white")}
+          onClick={goToResearch}
+        >
+          <SearchIcon className="size-4 shrink-0" />
+          <span className="truncate group-data-[sidebar-mode=icon]:hidden">
+            Research
           </span>
         </button>
         <button
@@ -290,10 +329,10 @@ export function ThreadListSearchTrigger({
   className?: string;
 }) {
   return (
-    <Button
+    <TooltipIconButton
+      tooltip="Search chats"
+      side="bottom"
       type="button"
-      variant="ghost"
-      size="icon"
       aria-label="Search chats"
       aria-expanded={open}
       aria-haspopup="dialog"
@@ -302,7 +341,7 @@ export function ThreadListSearchTrigger({
       onClick={() => onOpenChange(true)}
     >
       <SearchIcon className="size-4" />
-    </Button>
+    </TooltipIconButton>
   );
 }
 
@@ -345,10 +384,10 @@ export const ThreadListNew = forwardRef<
   return (
     <ThreadListPrimitive.New
       render={
-        <Button
+        <TooltipIconButton
           ref={ref}
-          variant="ghost"
-          size="icon"
+          tooltip="New chat"
+          side="bottom"
           aria-label="New session"
           data-slot="aui_thread-list-new"
           className={cn(
@@ -405,7 +444,10 @@ const dateGroupLabel = (
   startOfToday: number,
   startOfYesterday: number,
 ): string => {
-  if (!date || date.getTime() >= startOfToday) return "Today";
+  // Missing timestamps sort to the bottom — don't call them "Today"
+  // or consecutive grouping splits into duplicate Today sections.
+  if (!date) return "Earlier";
+  if (date.getTime() >= startOfToday) return "Today";
   if (date.getTime() >= startOfYesterday) return "Yesterday";
   return "Earlier";
 };
@@ -592,8 +634,8 @@ const ChatSessionList: FC<{ searchQuery?: string }> = ({ searchQuery = "" }) => 
     ) : !groups ? (
       entries.map((entry) => <ChatListRow key={entry.id} entry={entry} />)
     ) : (
-      groups.map((group) => (
-        <Fragment key={group.label}>
+      groups.map((group, index) => (
+        <Fragment key={`${group.label}-${index}`}>
           <div
             data-slot="aui_thread-list-group-label"
             className="text-muted-foreground px-2.5 pt-3 pb-1 text-xs font-medium"
@@ -612,8 +654,8 @@ const ChatSessionList: FC<{ searchQuery?: string }> = ({ searchQuery = "" }) => 
       ref={scrollRef}
       data-slot="aui_thread-list-scroll"
       // Native Blink scroll (same as chat viewport). Thumb only on hover.
-      // ~13 rows visible; page loads 15 so the list always overflows.
-      className="aui-chats-scroll max-h-[min(calc(13*2rem+2rem),48vh)] overflow-y-auto"
+      // ~10 rows visible so PROJECTS stays on-screen under the nav stack.
+      className="aui-chats-scroll max-h-[min(calc(10*2rem+2rem),40vh)] overflow-y-auto"
     >
       {rows}
       {!query && isLoadingMore ? (
@@ -851,12 +893,14 @@ const ChatListRow: FC<{ entry: ChatListEntry }> = ({ entry }) => {
           {isRunning && <span className="sr-only">Running</span>}
         </button>
       )}
-      <button
+      <TooltipIconButton
+        tooltip={pinned ? "Unpin" : "Pin"}
+        side="bottom"
         type="button"
         aria-label={pinned ? "Unpin chat" : "Pin chat"}
         aria-pressed={pinned}
         data-slot="aui_thread-list-item-pin"
-        className="pointer-events-none absolute end-8 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md p-0 text-zinc-500 opacity-0 transition-opacity hover:bg-white/10 hover:text-zinc-300 group-hover/chat:pointer-events-auto group-hover/chat:opacity-100"
+        className="pointer-events-none absolute end-8 top-1/2 size-6 -translate-y-1/2 rounded-md p-0 text-zinc-500 opacity-0 transition-opacity hover:bg-white/10 hover:text-zinc-300 group-hover/chat:pointer-events-auto group-hover/chat:opacity-100"
         onClick={(event) => {
           event.stopPropagation();
           if (pinning) return;
@@ -892,7 +936,7 @@ const ChatListRow: FC<{ entry: ChatListEntry }> = ({ entry }) => {
         ) : (
           <PinIcon className="size-3.5" />
         )}
-      </button>
+      </TooltipIconButton>
       <ThreadListItemMorePrimitive.Root sharedFocusGroup>
         <ThreadListItemMorePrimitive.Trigger
           render={

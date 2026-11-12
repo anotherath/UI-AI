@@ -12,20 +12,15 @@ export const COMPOSER_MODES = [
   { id: "imagine", label: "Imagine" },
   { id: "slides", label: "Slides" },
   { id: "website", label: "Website" },
+  { id: "research", label: "Research" },
 ] as const;
 
 export type ComposerModeId = (typeof COMPOSER_MODES)[number]["id"];
 
-/** Placeholder catalog — not wired to any provider yet. */
-export const COMPOSER_MODELS = [
-  { id: "auto", label: "Auto" },
-  { id: "gpt-5.4", label: "GPT-5.4" },
-  { id: "claude-sonnet", label: "Claude Sonnet" },
-  { id: "gemini-pro", label: "Gemini Pro" },
-  { id: "deepseek", label: "DeepSeek" },
-] as const;
+/** Catalog id (`provider:model`). Defaults to Luna until catalog syncs. */
+export type ComposerModelId = string;
 
-export type ComposerModelId = (typeof COMPOSER_MODELS)[number]["id"];
+const DEFAULT_COMPOSER_MODEL: ComposerModelId = "vibi:gpt-6-luna";
 
 /** Aspect ratios for Imagine — UI only for now. */
 export const COMPOSER_ASPECTS = [
@@ -42,10 +37,14 @@ export type ComposerAspectId = (typeof COMPOSER_ASPECTS)[number]["id"];
 
 type ComposerPrefsState = {
   mode: ComposerModeId;
+  /** Main thread model. */
   model: ComposerModelId;
+  /** Subsession rail model — independent from main. */
+  subsessionModel: ComposerModelId;
   aspect: ComposerAspectId;
   setMode: (mode: ComposerModeId) => void;
   setModel: (model: ComposerModelId) => void;
+  setSubsessionModel: (model: ComposerModelId) => void;
   setAspect: (aspect: ComposerAspectId) => void;
 };
 
@@ -53,10 +52,12 @@ export const useComposerPrefsStore = create<ComposerPrefsState>()(
   persist(
     (set) => ({
       mode: "auto",
-      model: "auto",
+      model: DEFAULT_COMPOSER_MODEL,
+      subsessionModel: DEFAULT_COMPOSER_MODEL,
       aspect: "1:1",
       setMode: (mode) => set({ mode }),
       setModel: (model) => set({ model }),
+      setSubsessionModel: (model) => set({ subsessionModel: model }),
       setAspect: (aspect) => set({ aspect }),
     }),
     { name: "ai-rag-composer-prefs" },
